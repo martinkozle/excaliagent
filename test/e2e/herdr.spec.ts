@@ -1,0 +1,101 @@
+// Full chain against a throwaway, isolated herdr server (never the user's):
+// a mock Claude session whose pid runs in a herdr pane gets the pane id on its
+// card, and double-clicking the card focuses that pane.
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import { herdrRequest } from "../../src/server/panes/herdr-client.ts";
+import { startIsolatedHerdr, type IsolatedHerdr } from "../../src/server/panes/__fixtures__/isolated-herdr.ts";
+import { startBoard, type Board } from "./board.ts";
+
+const hasHerdr = (() => {
+  try {
+    execFileSync("herdr", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+test.skip(!hasHerdr, "herdr is not installed");
+
+const SESSION = "33333333-0000-4000-8000-000000000001";
+let herdr: IsolatedHerdr;
+let board: Board;
+
+async function untilFile(path: string): Promise<string> {
+  for (let i = 0; i < 100; i++) {
+    if (existsSync(path) && readFileSync(path, "utf8").trim()) return readFileSync(path, "utf8").trim();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`timed out waiting for ${path}`);
+}
+
+/** Run a dummy foreground process in a pane; returns its pid. */
+async function dummyIn(paneId: string, name: string): Promise<number> {
+  const pidFile = join(herdr.dir, `${name}.pid`);
+  await herdrRequest(herdr.socketPath, "pane.send_text", {
+    pane_id: paneId,
+    text: `sh -c 'echo $$ > ${pidFile}; exec sleep 300'\n`,
+  });
+  return Number(await untilFile(pidFile));
+}
+
+async function focusedPane(): Promise<string | undefined> {
+  const res = (await herdrRequest(herdr.socketPath, "pane.list", {})) as {
+    panes: { pane_id: string; focused: boolean }[];
+  };
+  return res.panes.find((p) => p.focused)?.pane_id;
+}
+
+test.afterEach(async () => {
+  board?.stop();
+  await herdr?.stop();
+});
+
+test("a card shows its herdr pane and double-click focuses it", async ({ page }) => {
+  herdr = await startIsolatedHerdr();
+  const ws = (await herdrRequest(herdr.socketPath, "workspace.create", { cwd: herdr.dir, focus: true })) as {
+    root_pane: { pane_id: string };
+  };
+  const paneA = ws.root_pane.pane_id;
+  const pid = await dummyIn(paneA, "a");
+  // A second pane takes focus, so focusing A is observable.
+  const split = (await herdrRequest(herdr.socketPath, "pane.split", {
+    target_pane_id: paneA,
+    direction: "right",
+    focus: true,
+  })) as { pane: { pane_id: string } };
+
+  board = await startBoard(
+    (mock) => mock.add({ id: SESSION, cwd: "/home/alice/src/demo-app", title: "In a pane", status: "busy", pid }),
+    { herdrSocket: herdr.socketPath },
+  );
+  await page.goto(board.url);
+  await expect
+    .poll(() => board.savedCards().find((c) => c.sessionId === SESSION)?.label, { timeout: 15_000 })
+    .toContain(`herdr ${paneA}`);
+
+  // Make sure focus starts elsewhere; skip the assertion if herdr has no notion of focus without a client.
+  const before = await focusedPane();
+  expect(before).not.toBe(paneA);
+
+  const point = await page.evaluate(async (sessionId) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.sessionId === sessionId);
+    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
+    excalidraw.scrollToContent(rect, { animate: false });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = excalidraw.getAppState();
+    return {
+      x: (rect.x + rect.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft,
+      y: (rect.y + rect.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop,
+    };
+  }, SESSION);
+  const focusCall = page.waitForResponse((r) => r.url().endsWith("/api/focus"));
+  await page.mouse.dblclick(point.x, point.y);
+  expect((await focusCall).status()).toBe(204);
+  await expect.poll(focusedPane).toBe(paneA);
+  void split;
+});

@@ -23,6 +23,8 @@ export interface MockSessionSpec {
   cache?: "1h" | "5m";
   /** false → only a transcript (dormant). Default true. */
   live?: boolean;
+  /** Use this existing process (e.g. one running in a herdr pane) instead of spawning a dummy. */
+  pid?: number;
 }
 
 export interface MockSession extends MockSessionSpec {
@@ -109,8 +111,10 @@ export function createMockClaude(dir = mkdtempSync(join(tmpdir(), "excaliagent-m
   }
 
   function start(s: MockSession) {
-    s.process = dummyProcess();
-    s.pid = s.process.pid;
+    if (s.pid === undefined) {
+      s.process = dummyProcess();
+      s.pid = s.process.pid;
+    }
     writeRegistry(s);
   }
 

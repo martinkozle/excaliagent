@@ -30,11 +30,31 @@ export interface SavedCard {
   label: string;
 }
 
-async function startServer(claudeDir: string, stateDir: string): Promise<{ proc: ChildProcess; url: string }> {
+export interface BoardOptions {
+  /** Link panes through this (isolated!) herdr socket. Default: herdr disabled. */
+  herdrSocket?: string;
+}
+
+async function startServer(
+  claudeDir: string,
+  stateDir: string,
+  opts: BoardOptions,
+): Promise<{ proc: ChildProcess; url: string }> {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("HERDR_")) env[k] = v;
+  if (opts.herdrSocket) env.HERDR_SOCKET_PATH = opts.herdrSocket;
   const proc = spawn(
     process.execPath,
-    [join(root, "src/server/cli.ts"), "--no-open", "--no-herdr", "--claude-dir", claudeDir, "--state-dir", stateDir],
-    { stdio: ["ignore", "pipe", "inherit"] },
+    [
+      join(root, "src/server/cli.ts"),
+      "--no-open",
+      ...(opts.herdrSocket ? [] : ["--no-herdr"]),
+      "--claude-dir",
+      claudeDir,
+      "--state-dir",
+      stateDir,
+    ],
+    { stdio: ["ignore", "pipe", "inherit"], env },
   );
   const url = await new Promise<string>((resolve, reject) => {
     let out = "";
@@ -48,11 +68,11 @@ async function startServer(claudeDir: string, stateDir: string): Promise<{ proc:
   return { proc, url };
 }
 
-export async function startBoard(seed: (mock: MockClaude) => void): Promise<Board> {
+export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOptions = {}): Promise<Board> {
   const mock = createMockClaude();
   seed(mock);
   const stateDir = mkdtempSync(join(tmpdir(), "excaliagent-e2e-state-"));
-  let { proc, url } = await startServer(mock.dir, stateDir);
+  let { proc, url } = await startServer(mock.dir, stateDir, opts);
 
   const board: Board = {
     url,
@@ -62,7 +82,7 @@ export async function startBoard(seed: (mock: MockClaude) => void): Promise<Boar
     async restart() {
       proc.kill("SIGTERM");
       await new Promise((r) => proc.once("exit", r));
-      ({ proc, url } = await startServer(mock.dir, stateDir));
+      ({ proc, url } = await startServer(mock.dir, stateDir, opts));
       board.url = url;
       board.origin = new URL(url).origin;
     },

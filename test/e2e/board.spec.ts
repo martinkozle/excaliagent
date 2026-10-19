@@ -159,11 +159,14 @@ test("double-clicking a dormant card offers the resume command", async ({ page, 
   await expect.poll(() => card(ID.dormantA)).toBeTruthy();
   await page.keyboard.press("Escape");
 
-  const point = await page.evaluate((sessionId) => {
+  const point = await page.evaluate(async (sessionId) => {
     const { excalidraw } = (window as any).__excaliagent;
     const rect = excalidraw
       .getSceneElements()
       .find((e: any) => e.customData?.excaliagent?.sessionId === sessionId);
+    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
+    excalidraw.scrollToContent(rect, { animate: false });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const s = excalidraw.getAppState();
     const sx = rect.x + rect.width / 2;
     const sy = rect.y + rect.height / 2;
