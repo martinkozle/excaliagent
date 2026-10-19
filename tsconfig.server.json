@@ -10,5 +10,5 @@
     "lib": ["ES2023"]
   },
   "include": ["src/server/**/*.ts", "src/shared/**/*.ts"],
-  "exclude": ["**/*.test.ts"]
+  "exclude": ["**/*.test.ts", "**/__fixtures__/**"]
 }
