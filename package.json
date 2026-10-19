@@ -4,6 +4,15 @@
   "description": "A spatial Excalidraw scratchboard for your coding-agent sessions",
   "type": "module",
   "license": "MIT",
+  "author": "Martin Popovski",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/martinkozle/excaliagent.git"
+  },
+  "homepage": "https://github.com/martinkozle/excaliagent#readme",
+  "bugs": {
+    "url": "https://github.com/martinkozle/excaliagent/issues"
+  },
   "bin": {
     "excaliagent": "bin/excaliagent.js"
   },
