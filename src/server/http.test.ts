@@ -9,6 +9,9 @@ import { createAppServer, type AppServer } from "./http.ts";
 import { createSceneStore } from "./scene-store.ts";
 
 const TOKEN = "t0ken-abc";
+const RESUMABLE = "0b6f3c1e-1111-4a2b-9c3d-123456789abc";
+const LIVE = "11111111-2222-3333-4444-555555555555";
+const NO_HERDR = "22222222-2222-3333-4444-555555555555";
 const webRoot = join(import.meta.dirname, "__fixtures__", "web");
 
 function session(over: Partial<Session> = {}): Session {
@@ -29,6 +32,9 @@ function fakeHub() {
     lookup: async (ids) => [...current, session({ id: "d1", live: false, status: "dormant" })].filter((s) => ids.includes(s.id)),
     picker: async () => [session({ id: "d1", live: false, status: "dormant" })],
     focus: vi.fn(async (id: string) => id === "s1"),
+    resume: vi.fn(async (id: string) =>
+      id === RESUMABLE ? ("resumed" as const) : id === LIVE ? ("live" as const) : id === NO_HERDR ? ("no-herdr" as const) : ("unknown" as const),
+    ),
     emit(s) { current = s; for (const l of listeners) l(s); },
   };
   return hub;
@@ -158,6 +164,39 @@ describe("api", () => {
       method: "PUT", headers: { cookie, "content-type": "application/json" }, body: "{oops",
     });
     expect(bad.status).toBe(400);
+  });
+
+  it("POST /api/resume: 204 resumed, 409 live / no herdr, 404 unknown, 400 bad id", async () => {
+    const res = await send("POST", "/api/resume", { sessionId: RESUMABLE });
+    expect(res.status).toBe(204);
+    expect(hub.resume).toHaveBeenCalledWith(RESUMABLE);
+    const live = await send("POST", "/api/resume", { sessionId: LIVE });
+    expect([live.status, await live.json()]).toEqual([409, { error: "live" }]);
+    const off = await send("POST", "/api/resume", { sessionId: NO_HERDR });
+    expect([off.status, await off.json()]).toEqual([409, { error: "no herdr" }]);
+    const unknown = await send("POST", "/api/resume", { sessionId: "99999999-2222-3333-4444-555555555555" });
+    expect(unknown.status).toBe(404);
+    hub.resume.mockClear();
+    for (const body of [{}, { sessionId: 5 }, { sessionId: "../x" }, { sessionId: `${RESUMABLE} && echo` }]) {
+      expect((await send("POST", "/api/resume", body)).status).toBe(400);
+    }
+    expect(hub.resume).not.toHaveBeenCalled();
+  });
+
+  it("POST /api/resume refuses cross-origin and cookieless requests", async () => {
+    const cross = await fetch(`${base}/api/resume`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ sessionId: RESUMABLE }),
+    });
+    expect(cross.status).toBe(403);
+    const anon = await fetch(`${base}/api/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: base },
+      body: JSON.stringify({ sessionId: RESUMABLE }),
+    });
+    expect(anon.status).toBe(401);
+    expect(hub.resume).not.toHaveBeenCalled();
   });
 
   it("POST /api/focus focuses a session with a pane and 409s otherwise", async () => {

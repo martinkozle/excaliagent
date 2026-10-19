@@ -14,6 +14,25 @@ export interface Hub {
   picker(): Promise<Session[]>;
   /** Focus the session's pane. False when it has none. */
   focus(sessionId: string): Promise<boolean>;
+  /**
+   * Reopen a dormant session in a new terminal (`claude --resume <id>`).
+   * "live": it is running, focus it instead. "no-herdr": nothing can open a terminal.
+   */
+  resume(sessionId: string): Promise<ResumeResult>;
+}
+
+export type ResumeResult = "resumed" | "no-herdr" | "unknown" | "live";
+
+/** Claude session ids are UUIDs; anything else is never put into a command. */
+export const SESSION_ID = /^[0-9a-f-]{36}$/i;
+
+const LABEL_MAX = 40;
+
+function resumeLabel(s: Session): string {
+  const title = s.title?.trim();
+  if (!title) return s.repo;
+  const chars = [...title];
+  return chars.length <= LABEL_MAX ? title : chars.slice(0, LABEL_MAX - 1).join("") + "…";
 }
 
 /** Joins a Source with a PaneLink and fans the result out to subscribers. */
@@ -76,6 +95,21 @@ export function createHub({ source, panes }: { source: Source; panes: PaneLink }
     async picker() {
       const live = new Set(current.map((s) => s.id));
       return (await source.listDormant()).filter((s) => !s.live && !live.has(s.id));
+    },
+    async resume(sessionId) {
+      if (!SESSION_ID.test(sessionId)) return "unknown";
+      if (current.some((s) => s.id === sessionId)) return "live";
+      const s = await source.get(sessionId);
+      if (!s) return "unknown";
+      if (s.live) return "live";
+      if (!panes.resume || !panes.available()) return "no-herdr";
+      await panes.resume({
+        cwd: s.cwd,
+        ...(s.repoRoot !== undefined ? { repoRoot: s.repoRoot } : {}),
+        command: `claude --resume ${s.id}`,
+        label: resumeLabel(s),
+      });
+      return "resumed";
     },
     async focus(sessionId) {
       const pane = current.find((s) => s.id === sessionId)?.pane;

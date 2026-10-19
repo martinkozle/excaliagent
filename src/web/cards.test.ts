@@ -11,6 +11,8 @@ import {
   makeCard,
   makeInbox,
   statusStyle,
+  shortPr,
+  prLink,
   titleText,
   estimateMeasure,
   INNER_W,
@@ -169,8 +171,8 @@ describe("detailsText", () => {
   });
 
   it("non-github PR links lose the scheme and are truncated", () => {
-    expect(lines({ prLinks: ["https://gitlab.example.com/x/-/mr/4"] })[4]).toBe("gitlab.example.com/x/-/mr/4");
-    const long = lines({ prLinks: ["https://gitlab.example.com/group/project/-/merge_requests/4"] })[4]!;
+    expect(lines({ prLinks: ["https://example.com/x/y/4"] })[4]).toBe("example.com/x/y/4");
+    const long = lines({ prLinks: ["https://code.example.com/group/project/some/long/path/4"] })[4]!;
     expect(long.endsWith("…")).toBe(true);
     expect(estimateMeasure(long, 6, DETAIL_SIZE)).toBeLessThanOrEqual(INNER_W);
   });
@@ -234,5 +236,27 @@ describe("makeInbox", () => {
     const label = els.find((e) => e.type === "text");
     expect(label).toMatchObject({ text: "inbox", containerId: null });
     expect(label!.y + label!.height).toBeLessThanOrEqual(rect.y);
+  });
+});
+
+describe("shortPr / prLink", () => {
+  it.each([
+    ["https://github.com/me/repo/pull/12", "PR #12"],
+    ["https://bitbucket.org/team/repo/pull-requests/34", "PR #34"],
+    ["https://git.example.com/projects/X/repos/y/pull-requests/5", "PR #5"],
+    ["https://gitlab.com/group/sub/repo/-/merge_requests/7", "MR !7"],
+    ["https://gitlab.example.com/x/-/merge_requests/8/diffs", "MR !8"],
+    ["https://example.com/something/else", "example.com/something/else"],
+  ])("%s → %s", (url, out) => expect(shortPr(url)).toBe(out));
+
+  it("prLink is the last PR url, or null", () => {
+    expect(prLink(session({ prLinks: ["https://a/1", "https://b/2"] }))).toBe("https://b/2");
+    expect(prLink(session({ prLinks: [] }))).toBeNull();
+  });
+
+  it("the card rect links to the last PR", () => {
+    const [rect] = makeCard(session({ prLinks: ["https://github.com/a/b/pull/3"] }), { x: 0, y: 0 }, testGen(), NOW);
+    expect(rect.link).toBe("https://github.com/a/b/pull/3");
+    expect(makeCard(session(), { x: 0, y: 0 }, testGen(), NOW)[0].link).toBeNull();
   });
 });

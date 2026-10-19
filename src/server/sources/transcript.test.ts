@@ -143,6 +143,12 @@ describe("TranscriptScanner incremental reads", () => {
     expect(t!.cacheExpiresAt).toBe(ms("2026-10-19T10:30:00.000Z") + HOUR);
   });
 
+  it("takes continuedIn from the last continued-in line", async () => {
+    const { file } = await setup();
+    await writeFile(file, line({ type: "continued-in", sessionId: "a", continuedInSessionId: "first", timestamp: "2026-10-19T10:00:00.000Z" }) + line({ type: "continued-in", sessionId: "a", continuedInSessionId: "second", timestamp: "2026-10-19T11:00:00.000Z" }));
+    expect((await new TranscriptScanner({ log: silent }).scan(file))!.continuedIn).toBe("second");
+  });
+
   it("does not re-read an unchanged file", async () => {
     const { file } = await setup();
     const scanner = new TranscriptScanner({ log: silent });

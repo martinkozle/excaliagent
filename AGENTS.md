@@ -1,0 +1,72 @@
+# excaliagent agent guidance
+
+A local Excalidraw board where each coding-agent session (Claude Code today) is
+a card. Read these before changing anything:
+
+- `docs/product.md`: the goal state. What the board must do and must never do.
+- `docs/design.md`: architecture, decisions with their reasons, and the
+  verified (undocumented) data formats of Claude Code and herdr, with quirks.
+- `docs/roadmap.md`: what is next and the open questions.
+
+Keep these docs true. A change that alters behaviour, a data format, or a
+decision updates the matching doc in the same commit. When you verify a fact
+about Claude Code or herdr, write down the version you verified it on.
+
+## Architecture invariants
+
+- **The frontend is the single writer of the scene.** The server streams
+  `Session[]` and stores whatever scene the frontend saves; it never edits
+  elements.
+- **The app only touches what it created**, and on cards only the fields listed
+  in `docs/design.md` ("What the app may change"). Never position, size,
+  rotation, grouping or frames of anything the user arranged; never the user's
+  own drawings.
+- **Never send input to an agent session.** Focusing a pane and starting
+  `claude --resume <id>` in a *new* pane are the only side effects. Commands are
+  built server-side from validated session ids, never from request bodies.
+- **Loopback only**, with the startup token cookie, Host check and same-origin
+  writes on every `/api/*` route. New side-effecting routes get the same checks.
+- **Harness-specific code stays behind interfaces**: `Source`
+  (`src/server/sources/types.ts`) and `PaneLink` (`src/server/panes/types.ts`).
+  Nothing in `src/web` knows about Claude Code or herdr.
+- **Fail soft.** A malformed file, an unknown status, or a dead socket degrades
+  one card or one feature; the board keeps working.
+- **Zero runtime dependencies** for the server (`node:` modules only). The web
+  bundle is built at publish time.
+
+## Tests and data (hard rules)
+
+- **Never use the user's real data.** No fixtures, recordings or test runs
+  against the real `~/.claude` or the user's running herdr. Fixtures are
+  synthetic (`/home/alice/...`, `example/demo-app`). `src/privacy.test.ts` fails
+  if any fixture contains this machine's home path or user name.
+- Mock Claude: `test/mock-claude.ts` seeds a throwaway Claude home with dummy
+  processes (`createMockClaude`, `seedDemo`) and tears it down.
+- Real herdr only as an **isolated server**:
+  `src/server/panes/__fixtures__/isolated-herdr.ts` (temp HOME, own socket,
+  `HERDR_*` scrubbed; refuses the live socket). Browser e2e servers always run
+  with `--no-herdr` or an isolated socket, and always `--no-raise`.
+- Work test-first. Pure logic (`src/web/reconcile.ts`, `cards.ts`, transcript
+  parsing) gets unit tests; whole flows get a Playwright test in `test/e2e/`.
+
+## Commands
+
+Run everything inside the Nix shell (`direnv allow`, or prefix with
+`nix develop -c`). See `CONTRIBUTING.md` for setup.
+
+```sh
+npm test                 # unit tests (vitest)
+npm run typecheck
+npm run test:e2e         # builds the web bundle, then Playwright
+EXCALIAGENT_E2E_HERDR=1 npx vitest run src/server/panes   # isolated herdr e2e
+npm run demo             # the board on a synthetic, seeded Claude home
+npm run dev              # server + Vite HMR against the real ~/.claude (manual use only)
+```
+
+Before handing off: unit tests, typecheck, `npm run build`, and the Playwright
+suite all pass.
+
+## Git handoff
+
+Commits are the unit of completed work. After the checks pass, commit the files
+changed for the task and report the commit id. Keep unrelated changes out.

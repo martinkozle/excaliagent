@@ -52,6 +52,23 @@ async function moveCard(page: Page, sessionId: string, x: number, y: number) {
   );
 }
 
+/** Viewport point at the center of a card, scrolled into view. */
+async function cardPoint(page: Page, sessionId: string) {
+  return page.evaluate(async (sessionId) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const rect = excalidraw
+      .getSceneElements()
+      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
+    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
+    excalidraw.scrollToContent(rect, { animate: false });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = excalidraw.getAppState();
+    const sx = rect.x + rect.width / 2;
+    const sy = rect.y + rect.height / 2;
+    return { x: (sx + s.scrollX) * s.zoom.value + s.offsetLeft, y: (sy + s.scrollY) * s.zoom.value + s.offsetTop };
+  }, sessionId);
+}
+
 test("live sessions spawn as colored cards in the inbox; dormant ones do not", async ({ page }) => {
   await open(page);
   await expect.poll(() => board.savedCards().length).toBe(5);
@@ -165,23 +182,53 @@ test("double-clicking a dormant card offers the resume command", async ({ page, 
   await expect.poll(() => card(ID.dormantA)).toBeTruthy();
   await page.keyboard.press("Escape");
 
-  const point = await page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw
-      .getSceneElements()
-      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    const sx = rect.x + rect.width / 2;
-    const sy = rect.y + rect.height / 2;
-    return { x: (sx + s.scrollX) * s.zoom.value + s.offsetLeft, y: (sy + s.scrollY) * s.zoom.value + s.offsetTop };
-  }, ID.dormantA);
+  const point = await cardPoint(page, ID.dormantA);
   await page.mouse.dblclick(point.x, point.y);
   await expect(page.getByText(/claude --resume 22222222-0000-4000-8000-000000000001/)).toBeVisible();
   // Did not enter text editing on the card.
   await expect(page.locator("textarea.excalidraw-wysiwyg")).toHaveCount(0);
+});
+
+test("a card links to its last PR", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  expect(card(ID.needsUser)?.link).toBe("https://github.com/example/demo-app/pull/12");
+  expect(card(ID.busy)?.link).toBeNull();
+});
+
+test("right-clicking a card adds our section above Excalidraw's menu", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  const point = await cardPoint(page, ID.needsUser);
+  await page.mouse.click(point.x, point.y, { button: "right" });
+
+  const theirs = page.locator(".excalidraw .context-menu");
+  const ours = page.locator(".excaliagent-menu");
+  await expect(theirs).toBeVisible();
+  await expect(ours).toBeVisible();
+  await expect(ours.getByRole("menuitem")).toHaveText(["Copy resume command", "Copy resume command with cd", "Open PR #12"]);
+  const a = (await ours.boundingBox())!;
+  const b = (await theirs.boundingBox())!;
+  expect(Math.abs(a.y + a.height - b.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(a.x - b.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: "test-results/board-card-menu.png" });
+
+  await ours.getByRole("menuitem", { name: "Copy resume command", exact: true }).click();
+  await expect(ours).toHaveCount(0);
+  await expect(theirs).toHaveCount(0);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`claude --resume ${ID.needsUser}`);
+});
+
+test("right-clicking empty canvas shows only Excalidraw's menu", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  // Scroll far away from every element, then right-click the middle of the canvas.
+  await page.evaluate(() => (window as any).__excaliagent.excalidraw.updateScene({ appState: { scrollX: 1e5, scrollY: 1e5 } }));
+  await page.mouse.click(700, 450, { button: "right" });
+  await expect(page.locator(".excalidraw .context-menu")).toBeVisible();
+  await expect(page.locator(".excaliagent-menu")).toHaveCount(0);
 });
 
 test("the API refuses requests without the token cookie", async ({ request }) => {

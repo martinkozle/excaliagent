@@ -1,7 +1,18 @@
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { describe, expect, it } from "vitest";
 import { makeCard } from "./cards.ts";
-import { cardAt, cardSessionIds, idsToLookup, mergeSessions, resumeCommand, saveHash } from "./board.ts";
+import type { Session } from "../shared/types.ts";
+import {
+  cardAt,
+  cardSessionIds,
+  idsToLookup,
+  menuItems,
+  menuPlacement,
+  mergeSessions,
+  resumeCommand,
+  resumeCommandPlain,
+  saveHash,
+} from "./board.ts";
 import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
 
 const card = (id: string, x = 0, y = 0, deleted = false) => {
@@ -64,5 +75,52 @@ describe("saveHash", () => {
     const h = saveHash(els);
     expect(saveHash(els.map((e) => ({ ...e })))).toBe(h);
     expect(saveHash([{ ...els[0]!, version: els[0]!.version + 1 }, els[1]!])).not.toBe(h);
+  });
+});
+
+describe("resume commands", () => {
+  it("plain and with cd", () => {
+    expect(resumeCommandPlain("abc")).toBe("claude --resume abc");
+  });
+});
+
+describe("menuItems", () => {
+  const labels = (s: Session | undefined, id = "s1") => menuItems(id, s).map((i) => i.label);
+
+  it("live with pane: focus, copies, PR", () => {
+    const s = session({ prLinks: ["https://github.com/a/b/pull/12"] });
+    expect(menuItems("s1", s)).toEqual([
+      { action: "focus", label: "Focus pane" },
+      { action: "copy", label: "Copy resume command", text: "claude --resume s1" },
+      { action: "copy", label: "Copy resume command with cd", text: resumeCommand(s) },
+      { action: "open", label: "Open PR #12", url: "https://github.com/a/b/pull/12" },
+    ]);
+  });
+
+  it("live without pane: no focus", () => {
+    expect(labels(session({ pane: undefined }))).toEqual(["Copy resume command", "Copy resume command with cd"]);
+  });
+
+  it("dormant: resume in herdr first; MR label", () => {
+    const s = session({ live: false, status: "dormant", prLinks: ["https://gitlab.com/g/r/-/merge_requests/3"] });
+    expect(labels(s)).toEqual(["Resume in herdr", "Copy resume command", "Copy resume command with cd", "Open MR !3"]);
+  });
+
+  it("unknown session: only the plain copy", () => {
+    expect(labels(undefined)).toEqual(["Copy resume command"]);
+  });
+
+  it("non-standard PR url: generic label", () => {
+    expect(labels(session({ pane: undefined, prLinks: ["https://x.example/y"] })).at(-1)).toBe("Open PR");
+  });
+});
+
+describe("menuPlacement", () => {
+  const menu = { left: 100, top: 400, bottom: 600, width: 180 };
+  it("sits directly above the menu, same left and width", () => {
+    expect(menuPlacement(menu, 3, 900)).toEqual({ left: 100, width: 180, bottom: 900 - 400 });
+  });
+  it("goes below the menu when there is no room above", () => {
+    expect(menuPlacement({ ...menu, top: 30, bottom: 230 }, 3, 900)).toEqual({ left: 100, width: 180, top: 230 });
   });
 });

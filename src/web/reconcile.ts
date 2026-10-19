@@ -1,7 +1,7 @@
-// The single writer (DESIGN.md "Single writer"): sessions + scene → new scene.
+// The single writer (docs/design.md "What the app may change"): sessions + scene → new scene.
 //
 // Pure. Never touches elements the app did not create. On app-owned cards:
-// - rect: only colours change. Exception, migration of an old bound-label card:
+// - rect: only colours and `link` (the session's last PR url) change. Exception, migration of an old bound-label card:
 //   a fresh app group id is prepended to its groupIds, the bound text entry is
 //   removed from boundElements, and its height grows (never shrinks) to CARD_H.
 // - title/details texts: only text/originalText and their width/height (content
@@ -10,7 +10,12 @@
 //   line count changes, the details text is re-placed below it, relative to the
 //   rect's current x/y (it is an app-owned element inside the card's group).
 // A card whose session is absent from `sessions` is restyled dormant; its texts
-// are left alone (nothing to regenerate them from).
+// and link are left alone (nothing to regenerate them from).
+//
+// Continued sessions: a card whose session has `continuedIn = X` is retargeted
+// to X (customData.sessionId on the rect and its texts) before spawning, unless
+// X already has a card (then the old card stays as it is). Chains A→B→C resolve
+// in one pass (stopping at a hop that already has a card).
 import type { ExcalidrawElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
 import type { Session } from "../shared/types.ts";
 import {
@@ -18,6 +23,7 @@ import {
   cardMeta,
   cardPartMeta,
   detailsText,
+  prLink,
   estimateMeasure,
   lineCount,
   partOffset,
@@ -47,9 +53,69 @@ export interface ReconcileResult {
   patched: string[];
   /** Element ids created or modified. */
   touchedIds: string[];
+  /** Cards moved over to a continuation session. */
+  retargeted: Array<{ from: string; to: string }>;
 }
 
-const PARTS: CardPartKind[] = ["card-title", "card-details"];
+function sessionMap(sessions: readonly Session[], add: readonly Session[] = []): Map<string, Session> {
+  const byId = new Map<string, Session>();
+  for (const s of add) byId.set(s.id, s);
+  for (const s of sessions) byId.set(s.id, s);
+  return byId;
+}
+
+const bumpWith =
+  (gen: Gen, now: number) =>
+  <T extends ExcalidrawElement>(e: T, changes: Partial<T>): T => ({
+    ...e,
+    ...changes,
+    version: e.version + 1,
+    versionNonce: gen.seed(),
+    updated: now,
+  });
+
+/** Point cards of continued sessions at their continuation. */
+function retarget(
+  elements: readonly ExcalidrawElement[],
+  byId: ReadonlyMap<string, Session>,
+  now: number,
+  gen: Gen,
+): { elements: readonly ExcalidrawElement[]; touched: string[]; retargeted: Array<{ from: string; to: string }> } {
+  const rects = elements.filter((e) => !e.isDeleted && cardMeta(e));
+  const carded = new Set(rects.map((r) => cardMeta(r)!.sessionId));
+  const bump = bumpWith(gen, now);
+  let out: ExcalidrawElement[] | undefined;
+  const touched: string[] = [];
+  const retargeted: Array<{ from: string; to: string }> = [];
+  for (const rect of rects) {
+    const from = cardMeta(rect)!.sessionId;
+    // Follow the chain to its end; stop if any hop already has a card.
+    let to: string | undefined;
+    const seen = new Set([from]);
+    for (let next = byId.get(from)?.continuedIn; next && !seen.has(next); next = byId.get(next)?.continuedIn) {
+      seen.add(next);
+      to = next;
+      if (carded.has(next)) break;
+    }
+    if (!to || carded.has(to)) continue;
+    carded.add(to);
+    retargeted.push({ from, to });
+    out ??= elements.slice();
+    elements.forEach((e, i) => {
+      if (e.isDeleted) return;
+      const m = e.customData?.excaliagent;
+      const mine =
+        e.id === rect.id ||
+        (!!cardPartMeta(e) &&
+          m.sessionId === from &&
+          (m.cardId === rect.id || (!!rect.groupIds[0] && e.groupIds[0] === rect.groupIds[0])));
+      if (!mine) return;
+      out![i] = bump(e, { customData: { ...e.customData, excaliagent: { ...m, sessionId: to } } });
+      touched.push(e.id);
+    });
+  }
+  return { elements: out ?? elements, touched, retargeted };
+}
 
 export function reconcile(
   sessions: readonly Session[],
@@ -58,10 +124,31 @@ export function reconcile(
   gen: Gen,
   opts: { add?: readonly Session[]; measure?: Measure } = {},
 ): ReconcileResult {
+  const pre = retarget(elements, sessionMap(sessions, opts.add), now, gen);
+  const r = reconcileCards(sessions, pre.elements, now, gen, opts);
+  const touchedIds = [...new Set([...pre.touched, ...r.touchedIds])];
+  const changed = touchedIds.length > 0;
+  return {
+    ...r,
+    elements: changed ? r.elements : (elements as ExcalidrawElement[]),
+    changed,
+    touchedIds,
+    patched: [...new Set([...pre.retargeted.map((t) => t.to), ...r.patched])],
+    retargeted: pre.retargeted,
+  };
+}
+
+const PARTS: CardPartKind[] = ["card-title", "card-details"];
+
+function reconcileCards(
+  sessions: readonly Session[],
+  elements: readonly ExcalidrawElement[],
+  now: number,
+  gen: Gen,
+  opts: { add?: readonly Session[]; measure?: Measure },
+): Omit<ReconcileResult, "retargeted"> {
   const measure = opts.measure ?? estimateMeasure;
-  const byId = new Map<string, Session>();
-  for (const s of opts.add ?? []) byId.set(s.id, s);
-  for (const s of sessions) byId.set(s.id, s);
+  const byId = sessionMap(sessions, opts.add);
 
   const out: ExcalidrawElement[] = elements.slice();
   const indexOf = new Map(elements.map((e, i) => [e.id, i]));
@@ -69,13 +156,7 @@ export function reconcile(
   const patched = new Set<string>();
   const inserts = new Map<number, ExcalidrawElement[]>();
 
-  const bump = <T extends ExcalidrawElement>(e: T, changes: Partial<T>): T => ({
-    ...e,
-    ...changes,
-    version: e.version + 1,
-    versionNonce: gen.seed(),
-    updated: now,
-  });
+  const bump = bumpWith(gen, now);
   const put = (e: ExcalidrawElement) => {
     out[indexOf.get(e.id)!] = e;
     touched.push(e.id);
@@ -122,6 +203,7 @@ export function reconcile(
     const style = statusStyle(s, now);
     for (const k of ["backgroundColor", "strokeColor", "strokeStyle", "fillStyle"] as const)
       if (rect0[k] !== style[k]) Object.assign(rectChanges, { [k]: style[k] });
+    if (s && rect0.link !== prLink(s)) Object.assign(rectChanges, { link: prLink(s) });
 
     // Old card: bound text label → migrate.
     const legacyId = rect0.boundElements?.find((b) => b.type === "text")?.id;

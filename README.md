@@ -34,9 +34,16 @@ It starts a server on `127.0.0.1` and opens the board in your browser.
 
 - **Live sessions** appear in the *inbox* rectangle by themselves.
 - **Dormant sessions** are added from the **Sessions** panel (top right).
-- **Double-click a card** to focus its [herdr](https://herdr.dev) pane and raise
-  the terminal window (Hyprland and Sway). For a
-  dormant session it copies `cd <dir> && claude --resume <id>` instead.
+- **Double-click a card** to jump to it: a live session focuses its
+  [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
+  Sway). A dormant session is resumed with `claude --resume` in a new herdr
+  tab, in the workspace for that repo. Without herdr, the resume command is
+  copied instead.
+- **Right-click a card** for an excaliagent section on top of the Excalidraw
+  menu: focus or resume, copy the resume command (with or without `cd`), open
+  the PR.
+- A **PR link** (GitHub, Bitbucket, GitLab) shows on the card; the card's link
+  icon opens it.
 - The board is saved to `$XDG_STATE_HOME/excaliagent/scene.json`
   (default `~/.local/state/excaliagent/`).
 
@@ -52,8 +59,9 @@ See `npx excaliagent --help`.
 - Listens on loopback only. A random token is put into the URL it opens and
   exchanged for an HttpOnly cookie; every request needs it. Requests with a
   foreign `Host` (DNS rebinding) or cross-origin writes are refused.
-- The only action it can take is "focus this herdr pane". It never sends input
-  to a session.
+- Its only actions: focus a herdr pane, raise the terminal window, and start
+  `claude --resume <id>` in a new herdr pane. It never types into a running
+  session.
 
 ## herdr (optional)
 
@@ -80,4 +88,4 @@ herdr tests start an isolated `herdr server` with its own temp home and socket.
 A privacy test fails if any fixture contains this machine's home path or user
 name.
 
-Design notes: [DESIGN.md](DESIGN.md), [PRD.md](PRD.md), [PLAN.md](PLAN.md).
+Docs: [product](docs/product.md), [design](docs/design.md), [roadmap](docs/roadmap.md). Agents start at [AGENTS.md](AGENTS.md).

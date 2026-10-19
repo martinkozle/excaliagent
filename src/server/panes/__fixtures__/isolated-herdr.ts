@@ -14,7 +14,7 @@ export interface IsolatedHerdr {
   stop(): Promise<void>;
 }
 
-export async function startIsolatedHerdr(): Promise<IsolatedHerdr> {
+export async function startIsolatedHerdr(opts: { shell?: string } = {}): Promise<IsolatedHerdr> {
   const dir = mkdtempSync("/tmp/hdr-"); // short: sun_path is ~107 bytes
   const socketPath = join(dir, "h.sock");
   const live = [process.env.HERDR_SOCKET_PATH, join(homedir(), ".config/herdr/herdr.sock")];
@@ -29,7 +29,7 @@ export async function startIsolatedHerdr(): Promise<IsolatedHerdr> {
     XDG_DATA_HOME: join(dir, "home/.local/share"),
     XDG_RUNTIME_DIR: dir,
     HERDR_SOCKET_PATH: socketPath,
-    SHELL: "/bin/sh",
+    SHELL: opts.shell ?? "/bin/sh",
   });
   const server: ChildProcess = spawn("herdr", ["server"], { env, stdio: "ignore" });
   const exited = new Promise<void>((r) => server.once("exit", () => r()));

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../shared/types.ts";
 import { createClaudeSource } from "./claude.ts";
 import {
-  ALICE, BOB, SLUG_A, type SeededHome, aiTitle, ms, registry, seedClaudeHome, sid, standardSpec, user,
+  ALICE, BOB, SLUG_A, type SeededHome, aiTitle, continuedIn, ms, registry, seedClaudeHome, sid, standardSpec, user,
 } from "./__fixtures__/seed.ts";
 
 const HOUR = 3600_000;
@@ -117,10 +117,11 @@ describe("list", () => {
 });
 
 describe("listDormant", () => {
-  it("lists non-live transcripts newest first, ignoring subagent transcripts", async () => {
+  it("lists non-live, non-superseded transcripts newest first, ignoring subagent transcripts", async () => {
     const src = await standard();
     const list = await src.listDormant();
-    expect(list.map((s) => s.id)).toEqual([sid(3), sid(4), sid(5), sid(6)]);
+    // sid(3) has a continued-in line: superseded, hidden from the picker
+    expect(list.map((s) => s.id)).toEqual([sid(4), sid(5), sid(6)]);
     for (const s of list) {
       expect(s.status).toBe("dormant");
       expect(s.live).toBe(false);
@@ -129,9 +130,9 @@ describe("listDormant", () => {
     }
   });
 
-  it("maps transcript data onto a dormant session", async () => {
+  it("get() still returns a superseded session, with continuedIn", async () => {
     const src = await standard();
-    const s = (await src.listDormant()).find((x) => x.id === sid(3))!;
+    const s = await src.get(sid(3));
     expect(s).toEqual<Session>({
       id: sid(3), source: "claude", cwd: ALICE, repo: "demo-app", branch: "main", status: "dormant",
       lastActivityAt: ms("2026-10-18T08:20:00.000Z"), cacheTtlMs: HOUR,
@@ -148,17 +149,18 @@ describe("listDormant", () => {
     expect(s.lastActivityAt).toBe(ms("2026-10-16T08:00:00.000Z"));
   });
 
-  it("caps at 200", async () => {
+  it("caps at 200 after dropping superseded transcripts", async () => {
     const transcripts = Array.from({ length: 205 }, (_, i) => ({
       slug: SLUG_A,
       sessionId: `0a1b2c3d-1111-4000-8000-${String(i).padStart(12, "0")}`,
       mtimeMs: 1_700_000_000_000 + i * 1000,
-      lines: [aiTitle("x", `t${i}`)],
+      lines: i >= 200 ? [aiTitle("x", `t${i}`), continuedIn("x", "y", "2026-10-19T10:00:00.000Z")] : [aiTitle("x", `t${i}`)],
     }));
     home = await seedClaudeHome({ transcripts });
     const list = await createClaudeSource({ claudeDir: home.dir, log: silent }).listDormant();
     expect(list).toHaveLength(200);
-    expect(list[0]!.title).toBe("t204");
+    expect(list[0]!.title).toBe("t199");
+    expect(list.at(-1)!.title).toBe("t0");
   });
 });
 
@@ -262,35 +264,38 @@ describe("live git info", () => {
   }
 
   it("reads the branch from HEAD instead of the stale transcript gitBranch", async () => {
-    const { h, cwd } = await repoHome("ref: refs/heads/feat/mvp-slices\n");
+    const { h, cwd, root } = await repoHome("ref: refs/heads/feat/mvp-slices\n");
     home = h;
     await writeFile(join(h.dir, "sessions", "7.json"), JSON.stringify(registry({ pid: 7, sessionId: sid(1), cwd, status: "idle" })));
     await mkdir(join(h.dir, "projects", "p"), { recursive: true });
     await writeFile(join(h.dir, "projects", "p", `${sid(1)}.jsonl`), JSON.stringify(user(sid(1), "2026-10-19T10:00:00.000Z", cwd, "HEAD")) + "\n");
     const src = createClaudeSource({ claudeDir: h.dir, isAlive: () => true, log: silent, gitTtlMs: 0 });
     expect((await src.list())[0]!.branch).toBe("feat/mvp-slices");
+    expect((await src.list())[0]!.repoRoot).toBe(root);
     await writeFile(join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n");
     expect((await src.list())[0]!.branch).toBe("main");
   });
 
   it("uses the repo root basename for a session in a subdirectory", async () => {
-    const { h, cwd } = await repoHome("ref: refs/heads/main\n", "packages/web");
+    const { h, cwd, root } = await repoHome("ref: refs/heads/main\n", "packages/web");
     home = h;
     await writeFile(join(h.dir, "sessions", "7.json"), JSON.stringify(registry({ pid: 7, sessionId: sid(1), cwd, status: "busy" })));
     const [s] = await createClaudeSource({ claudeDir: h.dir, isAlive: () => true, log: silent }).list();
     expect(s!.cwd).toBe(cwd);
     expect(s!.repo).toBe("demo-app");
+    expect(s!.repoRoot).toBe(root);
     expect(s!.branch).toBe("main");
   });
 
   it("applies to dormant sessions too", async () => {
-    const { h, cwd } = await repoHome("3f2a9c1d0b4e5f60718293a4b5c6d7e8f9012345\n", "src");
+    const { h, cwd, root } = await repoHome("3f2a9c1d0b4e5f60718293a4b5c6d7e8f9012345\n", "src");
     home = h;
     await mkdir(join(h.dir, "projects", "p"), { recursive: true });
     await writeFile(join(h.dir, "projects", "p", `${sid(2)}.jsonl`), JSON.stringify(user(sid(2), "2026-10-19T10:00:00.000Z", cwd, "HEAD")) + "\n");
     const [s] = await createClaudeSource({ claudeDir: h.dir, log: silent }).listDormant();
     expect(s!.repo).toBe("demo-app");
     expect(s!.branch).toBe("3f2a9c1");
+    expect(s!.repoRoot).toBe(root);
   });
 
   it("falls back to the transcript branch and cwd basename without a repo", async () => {
@@ -298,5 +303,6 @@ describe("live git info", () => {
     const s = (await src.list()).find((x) => x.id === sid(1))!;
     expect(s.branch).toBe("feature/cards");
     expect(s.repo).toBe("demo-app");
+    expect(s.repoRoot).toBeUndefined();
   });
 });

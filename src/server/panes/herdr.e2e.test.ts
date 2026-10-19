@@ -3,7 +3,7 @@
  * Starts a throwaway herdr server (temp HOME + socket), runs a dummy process
  * in a pane, and checks pid → pane matching. Never touches a real session.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHerdrLink } from "./herdr.ts";
@@ -68,6 +68,35 @@ describe.skipIf(!enabled)("herdr e2e (isolated server)", () => {
       await waitFor(() => link.match(pid2)?.paneId === split.pane.pane_id, 5000, "second pid matched");
 
       await link.focus(split.pane.pane_id); // isolated server only
+
+      // resume() into the matching workspace: a new tab whose shell receives the text.
+      const resumedFile = join(herdr.dir, "resumed.pid");
+      const resumed = await link.resume({
+        cwd: herdr.dir,
+        repoRoot: herdr.dir,
+        command: `echo $$ > ${resumedFile}`,
+        label: "resumed tab",
+      });
+      expect(resumed.paneId.split(":")[0]).toBe(paneId.split(":")[0]);
+      await waitFor(() => existsSync(resumedFile) && readFileSync(resumedFile, "utf8").trim() !== "", 5000, "resumed text ran");
+      const shellPid = Number(readFileSync(resumedFile, "utf8").trim());
+      const info = (await herdrRequest(herdr.socketPath, "pane.process_info", { pane_id: resumed.paneId })) as {
+        process_info: { shell_pid: number };
+      };
+      expect(info.process_info.shell_pid).toBe(shellPid);
+      await link.refresh();
+      await waitFor(() => link.match(shellPid)?.tabLabel === "resumed tab", 5000, "resumed pane mapped with its tab label");
+
+      // No workspace shows this repo: a new workspace named after it.
+      const other = join(herdr.dir, "other-repo");
+      mkdirSync(other);
+      const otherFile = join(herdr.dir, "other.pid");
+      const fresh = await link.resume({ cwd: other, repoRoot: other, command: `echo $$ > ${otherFile}`, label: "x" });
+      expect(fresh.paneId.split(":")[0]).not.toBe(paneId.split(":")[0]);
+      await waitFor(() => existsSync(otherFile) && readFileSync(otherFile, "utf8").trim() !== "", 5000, "text in new workspace");
+      await link.refresh();
+      const otherPid = Number(readFileSync(otherFile, "utf8").trim());
+      await waitFor(() => link.match(otherPid)?.workspaceLabel === "other-repo", 5000, "new workspace label");
     } finally {
       link.close();
     }

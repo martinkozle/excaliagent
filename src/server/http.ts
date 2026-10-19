@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { timingSafeEqual } from "node:crypto";
-import type { Hub } from "./hub.ts";
+import { SESSION_ID, type Hub } from "./hub.ts";
 import type { SceneStore } from "./scene-store.ts";
 
 /** Connect-style middleware, e.g. Vite's dev server in middleware mode. */
@@ -174,6 +174,19 @@ export function createAppServer(opts: AppServerOptions): AppServer {
           return;
         }
         return json(res, 409, { error: "no pane" });
+      }
+      case "POST /api/resume": {
+        const body = (await readJson(req)) as { sessionId?: unknown };
+        if (typeof body?.sessionId !== "string" || !SESSION_ID.test(body.sessionId)) {
+          throw new HttpError(400, "sessionId must be a session UUID");
+        }
+        const result = await opts.hub.resume(body.sessionId);
+        if (result === "resumed") {
+          res.writeHead(204).end();
+          return;
+        }
+        if (result === "unknown") return json(res, 404, { error: "unknown session" });
+        return json(res, 409, { error: result === "live" ? "live" : "no herdr" });
       }
       default:
         return json(res, 404, { error: "not found" });

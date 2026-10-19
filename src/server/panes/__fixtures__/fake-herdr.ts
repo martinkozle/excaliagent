@@ -53,6 +53,14 @@ export interface FakeRequest {
 /** Returns a result object, `{ error }`, or "hang" to never answer. */
 export type Handler = (req: FakeRequest) => unknown;
 
+function fakePaneInfo(paneId: string, workspaceId: string, tabId: string, cwd: unknown) {
+  return {
+    pane_id: paneId, terminal_id: `term_${paneId}`, workspace_id: workspaceId, tab_id: tabId, focused: true,
+    cwd, foreground_cwd: cwd, agent_status: "unknown",
+    scroll: { offset_from_bottom: 0, max_offset_from_bottom: 0, viewport_rows: 48 }, revision: 0,
+  };
+}
+
 /** Recorded result body for a method/params, or a pane_not_found error. */
 export function recordedResult(req: FakeRequest): unknown {
   if (req.method === "pane.list") return JSON.parse(recorded.paneList.response).result;
@@ -65,6 +73,18 @@ export function recordedResult(req: FakeRequest): unknown {
     }
     return { error: { code: "pane_not_found", message: "pane not found" } };
   }
+  // Shapes as seen on an isolated herdr 0.9.0 (see isolated.exchanges.json).
+  if (req.method === "tab.create") {
+    const ws = String(req.params.workspace_id);
+    const tab = { tab_id: `${ws}:t9`, workspace_id: ws, number: 9, label: req.params.label, focused: true, pane_count: 1, agent_status: "unknown" };
+    return { type: "tab_created", tab, root_pane: fakePaneInfo(`${ws}:p9`, ws, tab.tab_id, req.params.cwd) };
+  }
+  if (req.method === "workspace.create") {
+    const workspace = { workspace_id: "w9", number: 9, label: req.params.label, focused: true, pane_count: 1, tab_count: 1, active_tab_id: "w9:t1", agent_status: "unknown" };
+    const tab = { tab_id: "w9:t1", workspace_id: "w9", number: 1, label: "1", focused: true, pane_count: 1, agent_status: "unknown" };
+    return { type: "workspace_created", workspace, tab, root_pane: fakePaneInfo("w9:p1", "w9", "w9:t1", req.params.cwd) };
+  }
+  if (req.method === "pane.send_text") return { type: "ok" };
   if (req.method === "pane.focus") {
     return { type: "pane_info", pane: { pane_id: req.params.pane_id } };
   }

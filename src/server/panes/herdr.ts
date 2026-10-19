@@ -5,11 +5,11 @@
  * herdr is absent: available() is false and the socket is retried.
  */
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Desktop } from "../desktop/desktop.ts";
-import { createHerdrClient, type Connect } from "./herdr-client.ts";
+import { createHerdrClient, HerdrError, type Connect } from "./herdr-client.ts";
 import { findHerdrClientPids } from "./herdr-clients.ts";
-import type { Pane, PaneLink } from "./types.ts";
+import type { Pane, PaneLink, ResumeRequest } from "./types.ts";
 
 export { createNoPaneLink } from "./none.ts";
 
@@ -35,7 +35,32 @@ export const HERDR_METHODS = [
   "pane.focus",
   "workspace.list",
   "tab.list",
+  "tab.create",
+  "workspace.create",
+  "pane.send_text",
 ] as const;
+
+/** True when path is dir or inside it (separator boundary: /a/b is not inside /a/bc). */
+export function isInside(path: string, dir: string): boolean {
+  const d = dir.length > 1 ? dir.replace(/\/+$/, "") : dir;
+  return path === d || path.startsWith(d === "/" ? "/" : d + "/");
+}
+
+interface ListedPane {
+  pane_id: string;
+  workspace_id?: string;
+  tab_id?: string;
+  cwd?: string | null;
+  foreground_cwd?: string | null;
+  focused?: boolean;
+}
+
+/** Workspace showing root: the focused pane's workspace if it matches, else the first match. */
+export function pickWorkspace(panes: ListedPane[], root: string): string | undefined {
+  const matches = panes.filter((p) => [p.cwd, p.foreground_cwd].some((c) => typeof c === "string" && isInside(c, root)));
+  const pick = matches.find((p) => p.focused) ?? matches[0];
+  return pick ? (pick.workspace_id ?? workspaceOf(pick.pane_id)) : undefined;
+}
 
 export function defaultHerdrSocketPath(): string {
   return process.env.HERDR_SOCKET_PATH || join(homedir(), ".config/herdr/herdr.sock");
@@ -88,10 +113,13 @@ export interface HerdrLinkOptions {
   /** When set, focus() also raises the terminal window hosting the herdr client. */
   desktop?: Desktop;
   procRoot?: string;
+  /** Rebuild the pid map this long after resume() (the new process needs a moment). */
+  resumeRefreshMs?: number;
 }
 
 export type HerdrLink = PaneLink & {
   refresh(): Promise<void>;
+  resume(req: ResumeRequest): Promise<{ paneId: string }>;
   /** pids of herdr client (TUI) processes attached to our server. */
   clientPids(): Promise<number[]>;
 };
@@ -199,6 +227,16 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
 
   const timer = setInterval(() => void rebuild(), resyncMs);
   timer.unref?.();
+  const pending = new Set<NodeJS.Timeout>();
+
+  async function raise(): Promise<void> {
+    if (!opts.desktop) return;
+    try {
+      await opts.desktop.raise(await clientPids());
+    } catch {
+      // raising the window is best effort
+    }
+  }
 
   return {
     available: () => !closed && client.connected(),
@@ -206,13 +244,30 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
     async focus(paneId) {
       if (closed || !client.connected()) return;
       await client.request("pane.focus", { pane_id: paneId });
-      if (opts.desktop) {
-        try {
-          await opts.desktop.raise(await clientPids());
-        } catch {
-          // raising the window is best effort
-        }
-      }
+      await raise();
+    },
+    async resume(req) {
+      if (closed || !client.connected()) throw new HerdrError("unavailable", "herdr is not connected");
+      const root = req.repoRoot ?? req.cwd;
+      const { panes = [] } = (await client.request("pane.list", {})) as { panes?: ListedPane[] };
+      const workspaceId = pickWorkspace(panes, root);
+      const created = (
+        workspaceId !== undefined
+          ? await client.request("tab.create", { workspace_id: workspaceId, cwd: req.cwd, label: req.label, focus: true })
+          : await client.request("workspace.create", { cwd: req.cwd, label: basename(root) || root, focus: true })
+      ) as { root_pane?: { pane_id?: unknown } };
+      const paneId = created.root_pane?.pane_id;
+      if (typeof paneId !== "string") throw new HerdrError("bad_response", "herdr did not return the new pane");
+      // A fresh shell buffers typed input until it is ready (checked on herdr 0.9.0 with sh and a slow zsh).
+      await client.request("pane.send_text", { pane_id: paneId, text: req.command + "\n" });
+      await raise();
+      const t = setTimeout(() => {
+        pending.delete(t);
+        void rebuild();
+      }, opts.resumeRefreshMs ?? 1500);
+      t.unref?.();
+      pending.add(t);
+      return { paneId };
     },
     clientPids,
     onChange(cb) {
@@ -224,6 +279,8 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
       if (closed) return;
       closed = true;
       clearInterval(timer);
+      for (const t of pending) clearTimeout(t);
+      pending.clear();
       client.close();
       listeners.clear();
       map = new Map();

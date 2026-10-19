@@ -85,6 +85,7 @@ export function dormantSession(
 function withGit(s: Session, git: GitInfo | undefined): Session {
   if (!git) return s;
   s.repo = basename(git.root);
+  s.repoRoot = git.root;
   s.branch = git.branch;
   return s;
 }
@@ -196,11 +197,17 @@ export function createClaudeSource(opts: ClaudeSourceOptions = {}): Source {
     return out;
   }
 
-  async function toDormant(files: TranscriptFile[]): Promise<Session[]> {
+  /** Scans and maps files in order; with `limit`, skips superseded transcripts and stops after `limit`. */
+  async function toDormant(files: TranscriptFile[], limit?: number): Promise<Session[]> {
     const scanned: Array<[TranscriptFile, TranscriptInfo]> = [];
     for (const f of files) {
+      if (limit !== undefined && scanned.length >= limit) break;
       const t = await scan(f.path, f.slug);
-      if (t) scanned.push([f, t]);
+      if (!t) continue;
+      // A continued-in line means the conversation moved to a background
+      // session; Claude Code hides these from /resume, so the picker does too.
+      if (limit !== undefined && t.continuedIn) continue;
+      scanned.push([f, t]);
     }
     // Map after scanning all, so sibling cwds are known.
     const out: Session[] = [];
@@ -215,9 +222,8 @@ export function createClaudeSource(opts: ClaudeSourceOptions = {}): Source {
     const live = new Set((await liveEntries()).map((e) => e.sessionId));
     const files = (await transcriptFiles())
       .filter((f) => !live.has(f.id))
-      .sort((a, b) => b.mtimeMs - a.mtimeMs)
-      .slice(0, maxDormant);
-    return toDormant(files);
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return toDormant(files, maxDormant);
   }
 
   async function get(id: string): Promise<Session | undefined> {

@@ -2,7 +2,8 @@
 // a mock Claude session whose pid runs in a herdr pane gets the pane id on its
 // card, and double-clicking the card focuses that pane.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { herdrRequest } from "../../src/server/panes/herdr-client.ts";
@@ -23,6 +24,7 @@ test.skip(!hasHerdr, "herdr is not installed");
 const SESSION = "33333333-0000-4000-8000-000000000001";
 let herdr: IsolatedHerdr;
 let board: Board;
+let fakeDir: string | undefined;
 
 async function untilFile(path: string): Promise<string> {
   for (let i = 0; i < 100; i++) {
@@ -52,6 +54,8 @@ async function focusedPane(): Promise<string | undefined> {
 test.afterEach(async () => {
   board?.stop();
   await herdr?.stop();
+  if (fakeDir) rmSync(fakeDir, { recursive: true, force: true });
+  fakeDir = undefined;
 });
 
 test("a card shows its herdr workspace and tab, and double-click focuses the pane", async ({ page }) => {
@@ -100,4 +104,61 @@ test("a card shows its herdr workspace and tab, and double-click focuses the pan
   expect((await focusCall).status()).toBe(204);
   await expect.poll(focusedPane).toBe(paneA);
   void split;
+});
+
+test("double-clicking a dormant card resumes it in a new tab of the matching herdr workspace", async ({ page }) => {
+  // The isolated herdr's shells must not find the real `claude`: put a fake one
+  // first on PATH (inherited by the server and its panes) that only records its args.
+  fakeDir = mkdtempSync(join(tmpdir(), "excaliagent-fake-claude-"));
+  const argsFile = join(fakeDir, "claude-args");
+  writeFileSync(join(fakeDir, "claude"), `#!/bin/sh\necho "$@" > ${argsFile}\n`);
+  chmodSync(join(fakeDir, "claude"), 0o755);
+  const realPath = process.env.PATH;
+  process.env.PATH = `${fakeDir}:${realPath}`;
+  try {
+    herdr = await startIsolatedHerdr();
+  } finally {
+    process.env.PATH = realPath;
+  }
+
+  const repo = join(herdr.dir, "demo-app");
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  writeFileSync(join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
+  await herdrRequest(herdr.socketPath, "workspace.create", { cwd: repo, label: "demo-app", focus: true });
+
+  const id = "44444444-0000-4000-8000-000000000001";
+  board = await startBoard(
+    (mock) => mock.add({ id, cwd: repo, title: "Parked work", live: false, lastTurnMinutesAgo: 60 }),
+    { herdrSocket: herdr.socketPath },
+  );
+  await page.goto(board.url);
+  await page.getByTitle("Add a dormant session to the board").click();
+  await page.locator(".excaliagent-picker-row", { hasText: "Parked work" }).getByRole("button", { name: "Add" }).click();
+  await expect.poll(() => board.savedCards().find((c) => c.sessionId === id)).toBeTruthy();
+  await page.keyboard.press("Escape");
+
+  const point = await page.evaluate(async (sessionId) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
+    excalidraw.scrollToContent(rect, { animate: false });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const s = excalidraw.getAppState();
+    return {
+      x: (rect.x + rect.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft,
+      y: (rect.y + rect.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop,
+    };
+  }, id);
+  const resumeCall = page.waitForResponse((r) => r.url().endsWith("/api/resume"));
+  await page.mouse.dblclick(point.x, point.y);
+  expect((await resumeCall).status()).toBe(204);
+
+  expect(await untilFile(argsFile)).toBe(`--resume ${id}`);
+  const tabs = (await herdrRequest(herdr.socketPath, "tab.list", {})) as { tabs: { label: string; workspace_id: string }[] };
+  const workspaces = (await herdrRequest(herdr.socketPath, "workspace.list", {})) as {
+    workspaces: { workspace_id: string; label: string }[];
+  };
+  const tab = tabs.tabs.find((t) => t.label === "Parked work");
+  expect(tab).toBeTruthy();
+  expect(workspaces.workspaces.find((w) => w.workspace_id === tab!.workspace_id)?.label).toBe("demo-app");
+  expect(workspaces.workspaces).toHaveLength(1);
 });

@@ -25,6 +25,8 @@ export interface Session {
   cwd: string;
   /** Basename of the cwd's repo (cwd basename for now). */
   repo: string;
+  /** Directory containing .git, when known. */
+  repoRoot?: string;
   branch?: string;
   /** ai-title, else agent-name. */
   title?: string;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createHerdrLink, HERDR_METHODS, HERDR_SUBSCRIPTIONS, parsePaneMap } from "./herdr.ts";
+import { createHerdrLink, HERDR_METHODS, HERDR_SUBSCRIPTIONS, isInside, parsePaneMap } from "./herdr.ts";
 import { createNoPaneLink } from "./none.ts";
 import { parseLine } from "./herdr-client.ts";
 import {
@@ -397,6 +397,133 @@ describe("createHerdrLink", () => {
     await sleep(80);
     expect(fake.requests.length).toBe(n);
     expect(l.available()).toBe(false);
+  });
+});
+
+describe("isInside", () => {
+  it("matches on a separator boundary", () => {
+    expect(isInside("/a/b", "/a/b")).toBe(true);
+    expect(isInside("/a/b/c", "/a/b")).toBe(true);
+    expect(isInside("/a/b/c", "/a/b/")).toBe(true);
+    expect(isInside("/a/bc", "/a/b")).toBe(false);
+    expect(isInside("/a", "/a/b")).toBe(false);
+    expect(isInside("/anything", "/")).toBe(true);
+  });
+});
+
+describe("createHerdrLink resume", () => {
+  const REQ = { command: "claude --resume 0b6f3c1e-1111-4a2b-9c3d-123456789abc", label: "Fix login" };
+
+  /** pane.list with the given [pane_id, cwd, focused] rows; everything else from fixtures. */
+  const withPanes = (rows: [string, string, boolean][]) => (req: FakeRequest) =>
+    req.method === "pane.list"
+      ? {
+          type: "pane_list",
+          panes: rows.map(([id, cwd, focused]) => ({
+            pane_id: id, workspace_id: id.split(":")[0], tab_id: id.split(":")[0] + ":t1", cwd, foreground_cwd: cwd, focused,
+          })),
+        }
+      : recordedResult(req);
+
+  async function resumeWith(handler: ((r: FakeRequest) => unknown) | undefined, req: Parameters<NonNullable<ReturnType<typeof createHerdrLink>["resume"]>>[0]) {
+    const { socketPath, fake, dir } = await setup();
+    if (handler) fake.handler = handler;
+    const raised: number[][] = [];
+    const l = link({
+      socketPath,
+      procRoot: fakeProcWithClient(dir, socketPath),
+      desktop: { raise: async (p) => (raised.push(p), true) },
+    });
+    await waitFor(() => l.available());
+    const before = fake.requests.length;
+    const result = await l.resume!(req);
+    const calls = fake.requests.slice(before).filter((r) => r.method !== "pane.list" && r.method !== "pane.process_info" && !r.method.endsWith(".list"));
+    return { result, calls, raised, fake, l };
+  }
+
+  it("opens a tab in the workspace whose pane is inside repoRoot, types the command, raises", async () => {
+    const { result, calls, raised } = await resumeWith(undefined, {
+      ...REQ,
+      cwd: "/home/alice/src/demo-app/packages/web",
+      repoRoot: "/home/alice/src/demo-app",
+    });
+    expect(calls.map((c) => [c.method, c.params])).toEqual([
+      ["tab.create", { workspace_id: "w1", cwd: "/home/alice/src/demo-app/packages/web", label: "Fix login", focus: true }],
+      ["pane.send_text", { pane_id: "w1:p9", text: "claude --resume 0b6f3c1e-1111-4a2b-9c3d-123456789abc\n" }],
+    ]);
+    expect(result).toEqual({ paneId: "w1:p9" });
+    expect(raised).toEqual([[700]]);
+  });
+
+  it("matches on a path boundary: /a/b is not inside /a/bc", async () => {
+    const { calls } = await resumeWith(
+      withPanes([["w1:p1", "/a/bc", false], ["w2:p1", "/a/b/sub", false]]),
+      { ...REQ, cwd: "/a/b" },
+    );
+    expect(calls[0]).toMatchObject({ method: "tab.create", params: { workspace_id: "w2" } });
+  });
+
+  it("an exact cwd match counts; foreground_cwd counts too", async () => {
+    const exact = await resumeWith(withPanes([["w3:p1", "/a/b", false]]), { ...REQ, cwd: "/a/b" });
+    expect(exact.calls[0]).toMatchObject({ method: "tab.create", params: { workspace_id: "w3" } });
+    const fg = await resumeWith(
+      (req) =>
+        req.method === "pane.list"
+          ? { type: "pane_list", panes: [{ pane_id: "w4:p1", workspace_id: "w4", cwd: "/elsewhere", foreground_cwd: "/a/b/x", focused: false }] }
+          : recordedResult(req),
+      { ...REQ, cwd: "/a/b" },
+    );
+    expect(fg.calls[0]).toMatchObject({ method: "tab.create", params: { workspace_id: "w4" } });
+  });
+
+  it("prefers the workspace holding the focused pane, else the first match", async () => {
+    const focused = await resumeWith(
+      withPanes([["w1:p1", "/a/b", false], ["w2:p1", "/a/b", true]]),
+      { ...REQ, cwd: "/a/b" },
+    );
+    expect(focused.calls[0]).toMatchObject({ params: { workspace_id: "w2" } });
+    const first = await resumeWith(
+      withPanes([["w1:p1", "/a/b", false], ["w2:p1", "/a/b", false], ["w5:p1", "/zzz", true]]),
+      { ...REQ, cwd: "/a/b" },
+    );
+    expect(first.calls[0]).toMatchObject({ params: { workspace_id: "w1" } });
+  });
+
+  it("creates a workspace named after the repo when no workspace matches", async () => {
+    const { calls, result } = await resumeWith(withPanes([["w1:p1", "/a/bc", true]]), {
+      ...REQ,
+      cwd: "/a/b/pkg",
+      repoRoot: "/a/b",
+    });
+    expect(calls.map((c) => [c.method, c.params])).toEqual([
+      ["workspace.create", { cwd: "/a/b/pkg", label: "b", focus: true }],
+      ["pane.send_text", { pane_id: "w9:p1", text: REQ.command + "\n" }],
+    ]);
+    expect(result).toEqual({ paneId: "w9:p1" });
+  });
+
+  it("rebuilds the pid map shortly after resuming", async () => {
+    const { socketPath, fake } = await setup();
+    const l = link({ socketPath, resumeRefreshMs: 20 });
+    await waitFor(() => l.match(4210) !== undefined);
+    const lists = count(fake, "pane.list");
+    await l.resume!({ ...REQ, cwd: "/home/alice/src/demo-app" });
+    await waitFor(() => count(fake, "pane.list") >= lists + 2, 2000, "rebuild after resume");
+  });
+
+  it("rejects when herdr is unavailable or errors, and does not type anything", async () => {
+    const t = tempSocketDir();
+    cleanups.push(t.cleanup);
+    const off = link({ socketPath: t.socketPath });
+    await expect(off.resume!({ ...REQ, cwd: "/a" })).rejects.toMatchObject({ code: "unavailable" });
+
+    const { socketPath, fake } = await setup();
+    const l = link({ socketPath });
+    await waitFor(() => l.available());
+    fake.handler = (req) =>
+      req.method === "tab.create" ? { error: { code: "workspace_not_found", message: "gone" } } : recordedResult(req);
+    await expect(l.resume!({ ...REQ, cwd: "/home/alice/src/demo-app" })).rejects.toMatchObject({ code: "workspace_not_found" });
+    expect(fake.requests.some((r) => r.method === "pane.send_text")).toBe(false);
   });
 });
 

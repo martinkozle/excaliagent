@@ -380,3 +380,90 @@ describe("late font loads", () => {
     expect(reconcile([s], scaled, NOW, testGen(), { measure: wide }).changed).toBe(false);
   });
 });
+
+describe("reconcile: PR link", () => {
+  it("patches the rect link when a PR appears, keeps it when the session vanishes", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen);
+    expect(cardsOf(a.elements)[0]!.link).toBeNull();
+    const withPr = session({ prLinks: ["https://github.com/me/x/pull/9"] });
+    const b = reconcile([withPr], a.elements, NOW, gen);
+    expect(b.patched).toEqual(["s1"]);
+    expect(cardsOf(b.elements)[0]!.link).toBe("https://github.com/me/x/pull/9");
+    expect(reconcile([withPr], b.elements, NOW, gen).changed).toBe(false);
+    const c = reconcile([], b.elements, NOW, gen);
+    expect(cardsOf(c.elements)[0]!.link).toBe("https://github.com/me/x/pull/9");
+  });
+});
+
+describe("reconcile: continued-in", () => {
+  const sessionIdsOf = (els: readonly ExcalidrawElement[], rectId: string) =>
+    live(els)
+      .filter((e) => e.id === rectId || e.customData?.excaliagent?.cardId === rectId)
+      .map((e) => e.customData!.excaliagent.sessionId);
+
+  it("retargets the card (rect and texts) to the continuation, and does not spawn it again", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" })], [], NOW, gen);
+    const rect = cardsOf(a.elements, "A")[0]!;
+    const sessions = [session({ id: "A", live: false, status: "dormant", continuedIn: "B" }), session({ id: "B", title: "Next" })];
+    const r = reconcile(sessions, a.elements, NOW, gen);
+    expect(r.spawned).toEqual([]);
+    expect(r.retargeted).toEqual([{ from: "A", to: "B" }]);
+    expect(sessionIdsOf(r.elements, rect.id)).toEqual(["B", "B", "B"]);
+    expect(cardsOf(r.elements)).toHaveLength(1);
+    const card = cardsOf(r.elements, "B")[0]!;
+    expect([card.x, card.y]).toEqual([rect.x, rect.y]);
+    expect(partOf(r.elements, card, "card-title").text).toBe("Next");
+    expect(card.backgroundColor).toBe("#a5d8ff");
+    expect(reconcile(sessions, r.elements, NOW, gen).changed).toBe(false);
+  });
+
+  it("retargets even when the continuation is unknown yet (styled dormant until looked up)", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" })], [], NOW, gen);
+    const r = reconcile([session({ id: "A", live: false, status: "dormant", continuedIn: "B" })], a.elements, NOW, gen);
+    expect(cardsOf(r.elements, "B")).toHaveLength(1);
+    expect(cardsOf(r.elements, "B")[0]!.strokeStyle).toBe("dashed");
+  });
+
+  it("leaves the old card alone when the continuation already has a card", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" }), session({ id: "B" })], [], NOW, gen);
+    const sessions = [session({ id: "A", live: false, status: "dormant", continuedIn: "B" }), session({ id: "B" })];
+    const r = reconcile(sessions, a.elements, NOW, gen);
+    expect(r.retargeted).toEqual([]);
+    expect(cardsOf(r.elements, "A")).toHaveLength(1);
+    expect(cardsOf(r.elements, "B")).toHaveLength(1);
+  });
+
+  it("chains resolve to the last continuation in one pass", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" })], [], NOW, gen);
+    const sessions = [
+      session({ id: "A", live: false, status: "dormant", continuedIn: "B" }),
+      session({ id: "B", live: false, status: "dormant", continuedIn: "C" }),
+      session({ id: "C" }),
+    ];
+    const b = reconcile(sessions, a.elements, NOW, gen);
+    expect(b.spawned).toEqual([]);
+    expect(b.retargeted).toEqual([{ from: "A", to: "C" }]);
+    expect(cardsOf(b.elements).map((e) => e.customData!.excaliagent.sessionId)).toEqual(["C"]);
+    expect(reconcile(sessions, b.elements, NOW, gen).changed).toBe(false);
+  });
+});
+
+describe("reconcile: continued-in chain with a carded hop", () => {
+  it("stops at a hop that already has a card", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" }), session({ id: "B" })], [], NOW, gen);
+    const sessions = [
+      session({ id: "A", live: false, status: "dormant", continuedIn: "B" }),
+      session({ id: "B", live: false, status: "dormant", continuedIn: "C" }),
+    ];
+    const r = reconcile(sessions, a.elements, NOW, gen);
+    expect(r.retargeted).toEqual([{ from: "B", to: "C" }]);
+    const ids = r.elements.filter((e) => !e.isDeleted && e.customData?.excaliagent?.kind === "card").map((e) => e.customData!.excaliagent.sessionId);
+    expect(ids.sort()).toEqual(["A", "C"]);
+  });
+});

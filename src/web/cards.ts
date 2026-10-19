@@ -86,7 +86,7 @@ export function isDormant(s: Session): boolean {
   return !s.live || s.status === "dormant" || s.status === "exited";
 }
 
-/** DESIGN.md "Status → color". `undefined` = session unknown → dormant look. */
+/** docs/design.md "Cards" colour table. `undefined` = session unknown → dormant look. */
 export function statusStyle(s: Session | undefined, now: number): CardStyle {
   if (!s || isDormant(s)) return DORMANT;
   if (NEEDS_INPUT.has(s.status))
@@ -108,9 +108,21 @@ export function formatAge(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+/**
+ * "PR #N" for GitHub `/pull/N` and Bitbucket `/pull-requests/N`, "MR !N" for
+ * GitLab `/-/merge_requests/N`, else the URL without its scheme.
+ */
 export function shortPr(url: string): string {
-  const m = /^https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/.exec(url);
-  return m ? `PR #${m[1]}` : url.replace(/^https?:\/\//, "");
+  const mr = /^https?:\/\/[^/]+\/.+\/-\/merge_requests\/(\d+)(?:[/?#]|$)/.exec(url);
+  if (mr) return `MR !${mr[1]}`;
+  const pr = /^https?:\/\/[^/]+\/.+\/(?:pull|pull-requests)\/(\d+)(?:[/?#]|$)/.exec(url);
+  if (pr) return `PR #${pr[1]}`;
+  return url.replace(/^https?:\/\//, "");
+}
+
+/** The card rect's `link`: the session's last PR url, or null. */
+export function prLink(s: Session): string | null {
+  return s.prLinks.at(-1) ?? null;
 }
 
 type Fits = (text: string) => boolean;
@@ -166,7 +178,7 @@ function herdrLine(s: Session): string {
   return `herdr: ${labels.length ? labels.join(" › ") : s.pane.paneId}`;
 }
 
-/** Up to five lines (DESIGN.md "Card label"), empty ones dropped. */
+/** Up to five lines (docs/design.md "Cards"), empty ones dropped. */
 export function detailsText(s: Session, now: number, measure: Measure = estimateMeasure): string {
   const dormant = isDormant(s);
   const age = formatAge(now - s.lastActivityAt);
@@ -327,6 +339,7 @@ export function makeCard(
     ...statusStyle(s, now),
     roundness: { type: 3 },
     boundElements: null,
+    link: prLink(s),
     customData: { excaliagent: meta },
   };
   const title = titleText(s, measure);

@@ -28,6 +28,8 @@ export interface SavedCard {
   strokeColor: string;
   strokeStyle: string;
   label: string;
+  /** The card rect's link (last PR url) or null. */
+  link: string | null;
 }
 
 export interface BoardOptions {
@@ -106,6 +108,7 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
           backgroundColor: r.backgroundColor,
           strokeColor: r.strokeColor,
           strokeStyle: r.strokeStyle,
+          link: r.link ?? null,
           // Title + details texts (free texts in the card's group, customData.cardId = rect id).
           label: ["card-title", "card-details"]
             .map(

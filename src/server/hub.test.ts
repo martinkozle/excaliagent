@@ -25,12 +25,17 @@ function fakeSource(initial: Session[], dormant: Session[] = []) {
 
 function fakePanes(map: Record<number, { paneId: string; workspaceId: string }> = {}) {
   const listeners = new Set<() => void>();
-  const link: PaneLink & { set(m: typeof map): void; refresh: ReturnType<typeof vi.fn> } = {
+  const link: PaneLink & {
+    set(m: typeof map): void;
+    refresh: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
+  } = {
     available: () => true,
     match: (pid) => map[pid],
     focus: vi.fn(async () => {}),
     onChange: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
     refresh: vi.fn(async () => {}),
+    resume: vi.fn(async () => ({ paneId: "w1:p9" })),
     close: () => {},
     set(m) { map = m; for (const l of listeners) l(); },
   };
@@ -102,5 +107,66 @@ describe("hub", () => {
     expect(panes.focus).toHaveBeenCalledWith("w1:p1");
     expect(await hub.focus("nope")).toBe(false);
     hub.stop();
+  });
+
+  describe("resume", () => {
+    const ID = "0b6f3c1e-1111-4a2b-9c3d-123456789abc";
+    const dormant = (over: Partial<Session> = {}) =>
+      session({ id: ID, live: false, status: "dormant", pid: undefined, cwd: "/r/app/pkg", repo: "app", ...over });
+
+    async function hubWith(d: Session, panes = fakePanes()) {
+      const hub = createHub({ source: fakeSource([session()], [d]).source, panes });
+      await hub.start();
+      return { hub, panes };
+    }
+
+    it("resumes a dormant session with a server-built command, its cwd/repoRoot and a short label", async () => {
+      const title = "Make the login form remember the last used email address please";
+      const { hub, panes } = await hubWith(dormant({ repoRoot: "/r/app", title }));
+      expect(await hub.resume(ID)).toBe("resumed");
+      expect(panes.resume).toHaveBeenCalledWith({
+        cwd: "/r/app/pkg",
+        repoRoot: "/r/app",
+        command: `claude --resume ${ID}`,
+        label: title.slice(0, 39) + "…",
+      });
+      expect([...panes.resume.mock.calls[0]![0].label]).toHaveLength(40);
+      hub.stop();
+    });
+
+    it("labels with the repo when there is no title; omits repoRoot when unknown", async () => {
+      const { hub, panes } = await hubWith(dormant());
+      expect(await hub.resume(ID)).toBe("resumed");
+      expect(panes.resume).toHaveBeenCalledWith({ cwd: "/r/app/pkg", command: `claude --resume ${ID}`, label: "app" });
+      hub.stop();
+    });
+
+    it("reports live sessions instead of resuming them", async () => {
+      const liveId = "11111111-2222-3333-4444-555555555555";
+      const panes = fakePanes();
+      const hub = createHub({ source: fakeSource([session({ id: liveId })]).source, panes });
+      await hub.start();
+      expect(await hub.resume(liveId)).toBe("live");
+      expect(panes.resume).not.toHaveBeenCalled();
+      hub.stop();
+    });
+
+    it("unknown or malformed ids are unknown and never reach the pane link", async () => {
+      const { hub, panes } = await hubWith(dormant());
+      expect(await hub.resume("99999999-2222-3333-4444-555555555555")).toBe("unknown");
+      for (const bad of ["../../etc", `${ID}; rm -rf ~`, ID.slice(1), ""]) expect(await hub.resume(bad)).toBe("unknown");
+      expect(panes.resume).not.toHaveBeenCalled();
+      hub.stop();
+    });
+
+    it("is no-herdr when the pane link cannot resume or is unavailable", async () => {
+      const noResume = fakePanes();
+      delete (noResume as Partial<PaneLink>).resume;
+      expect(await (await hubWith(dormant(), noResume)).hub.resume(ID)).toBe("no-herdr");
+      const down = fakePanes();
+      down.available = () => false;
+      expect(await (await hubWith(dormant(), down)).hub.resume(ID)).toBe("no-herdr");
+      expect(down.resume).not.toHaveBeenCalled();
+    });
   });
 });

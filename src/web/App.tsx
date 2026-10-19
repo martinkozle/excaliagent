@@ -10,7 +10,17 @@ import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState, ExcalidrawImperativeAPI, ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 import type { Session } from "../shared/types.ts";
 import { api } from "./api.ts";
-import { cardAt, cardSessionIds, idsToLookup, mergeSessions, resumeCommand, saveHash } from "./board.ts";
+import {
+  cardAt,
+  cardSessionIds,
+  idsToLookup,
+  menuItems,
+  mergeSessions,
+  resumeCommand,
+  saveHash,
+  type MenuItem,
+} from "./board.ts";
+import { CardMenu } from "./CardMenu.tsx";
 import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
@@ -40,6 +50,8 @@ export function App() {
   const [connected, setConnected] = useState(true);
   const [pickerRows, setPickerRows] = useState<Session[] | null>(null);
   const [fontsLoaded, setFontsLoaded] = useState(false);
+  /** Card whose right-click menu is open. */
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const live = useRef<Session[]>([]);
   const known = useRef(new Map<string, Session>());
@@ -161,27 +173,66 @@ export function App() {
     [save],
   );
 
-  // Double-click a card: focus its pane, or copy the resume command.
+  const sessionFor = useCallback(
+    (sessionId: string) => mergeSessions(live.current, known.current).find((s) => s.id === sessionId),
+    [],
+  );
+
+  // Double-click a card: focus its pane, or resume it. Right-click: our menu section.
   // Capture phase so Excalidraw does not also enter text editing.
   const wrapper = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = wrapper.current;
     if (!el || !excalidraw) return;
-    const onDblClick = (event: MouseEvent) => {
-      if (!(event.target instanceof HTMLCanvasElement)) return;
+    const cardUnder = (event: MouseEvent): string | undefined => {
+      if (!(event.target instanceof HTMLCanvasElement)) return undefined;
       const appState = excalidraw.getAppState() as AppState;
-      if (appState.activeTool.type !== "selection") return;
+      if (appState.activeTool.type !== "selection") return undefined;
       const { x, y } = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
-      const sessionId = cardAt(excalidraw.getSceneElements(), x, y);
+      return cardAt(excalidraw.getSceneElements(), x, y);
+    };
+    const onDblClick = (event: MouseEvent) => {
+      const sessionId = cardUnder(event);
       if (!sessionId) return;
       event.stopPropagation();
       event.preventDefault();
-      const session = mergeSessions(live.current, known.current).find((s) => s.id === sessionId);
-      void openSession(excalidraw, sessionId, session);
+      void openSession(excalidraw, sessionId, sessionFor(sessionId));
     };
+    // Do not preventDefault: Excalidraw still opens its own menu; ours glues onto it.
+    const onContextMenu = (event: MouseEvent) => setMenuFor(cardUnder(event) ?? null);
     el.addEventListener("dblclick", onDblClick, true);
-    return () => el.removeEventListener("dblclick", onDblClick, true);
-  }, [excalidraw]);
+    el.addEventListener("contextmenu", onContextMenu, true);
+    return () => {
+      el.removeEventListener("dblclick", onDblClick, true);
+      el.removeEventListener("contextmenu", onContextMenu, true);
+    };
+  }, [excalidraw, sessionFor]);
+
+  const closeMenu = useCallback(() => setMenuFor(null), []);
+  const onMenuAction = useCallback(
+    (item: MenuItem) => {
+      const ex = excalidraw;
+      const sessionId = menuFor;
+      setMenuFor(null);
+      if (!ex || !sessionId) return;
+      switch (item.action) {
+        case "focus":
+          void focusSession(ex, sessionId);
+          break;
+        case "resume":
+          void resumeSession(ex, sessionId, sessionFor(sessionId));
+          break;
+        case "copy":
+          void copyText(ex, item.text, `Copied: ${item.text}`);
+          break;
+        case "open":
+          window.open(item.url, "_blank", "noopener,noreferrer");
+          break;
+      }
+    },
+    [excalidraw, menuFor, sessionFor],
+  );
+  const menuHost = menuFor ? wrapper.current?.querySelector<HTMLElement>(".excalidraw") : null;
 
   const refreshPicker = useCallback(() => {
     api
@@ -246,27 +297,52 @@ export function App() {
           </div>
         </Sidebar>
       </Excalidraw>
+      {menuFor && menuHost && (
+        <CardMenu host={menuHost} items={menuItems(menuFor, sessionFor(menuFor))} onAction={onMenuAction} onClose={closeMenu} />
+      )}
     </div>
   );
 }
 
 async function openSession(ex: ExcalidrawImperativeAPI, sessionId: string, session: Session | undefined) {
-  if (session?.live) {
-    try {
-      if (await api.focus(sessionId)) return;
-    } catch (err) {
-      console.error("excaliagent: focus failed", err);
-    }
-    ex.setToast({ message: "Running, but not in a herdr pane I can find.", duration: 3000, closable: true });
+  if (session?.live) return focusSession(ex, sessionId);
+  if (session) return resumeSession(ex, sessionId, session);
+}
+
+async function focusSession(ex: ExcalidrawImperativeAPI, sessionId: string) {
+  try {
+    if (await api.focus(sessionId)) return;
+  } catch (err) {
+    console.error("excaliagent: focus failed", err);
+  }
+  ex.setToast({ message: "Running, but not in a herdr pane I can find.", duration: 3000, closable: true });
+}
+
+/** Resume in a new herdr tab; without herdr, hand over the shell command instead. */
+async function resumeSession(ex: ExcalidrawImperativeAPI, sessionId: string, session: Session | undefined) {
+  let result: Awaited<ReturnType<typeof api.resume>> | "error";
+  try {
+    result = await api.resume(sessionId);
+  } catch (err) {
+    console.error("excaliagent: resume failed", err);
+    result = "error";
+  }
+  if (result === "ok") {
+    ex.setToast({ message: "Resuming in a new herdr tab…", duration: 3000, closable: true });
     return;
   }
-  if (!session) return;
-  const command = resumeCommand(session);
+  if (result === "live") return focusSession(ex, sessionId);
+  const command = session ? resumeCommand(session) : `claude --resume ${sessionId}`;
+  const why = result === "no herdr" ? "herdr not running" : "Could not resume";
+  await copyText(ex, command, `${why}. Copied: ${command}`, `${why}. Resume with: ${command}`);
+}
+
+async function copyText(ex: ExcalidrawImperativeAPI, text: string, copied: string, fallback = `Copy failed: ${text}`) {
   try {
-    await navigator.clipboard.writeText(command);
-    ex.setToast({ message: `No pane. Copied: ${command}`, duration: 4000, closable: true });
+    await navigator.clipboard.writeText(text);
+    ex.setToast({ message: copied, duration: 4000, closable: true });
   } catch {
-    ex.setToast({ message: `No pane. Resume with: ${command}`, duration: 8000, closable: true });
+    ex.setToast({ message: fallback, duration: 8000, closable: true });
   }
 }
 

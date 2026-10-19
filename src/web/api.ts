@@ -1,5 +1,7 @@
 import type { Session } from "../shared/types.ts";
 
+export type ResumeResult = "ok" | "no herdr" | "live" | "unknown";
+
 export interface SavedScene {
   elements: unknown[];
   appState: Record<string, unknown>;
@@ -31,6 +33,21 @@ export const api = {
     if (res.status === 409) return false;
     await ok(res);
     return true;
+  },
+  /**
+   * Resume a dormant session in a new herdr tab. "ok" on 204; otherwise why not:
+   * "no herdr" / "live" (409), "unknown" (404). Other failures throw.
+   */
+  resume: async (sessionId: string): Promise<ResumeResult> => {
+    const res = await fetch("/api/resume", jsonInit("POST", { sessionId }));
+    if (res.status === 204) return "ok";
+    if (res.status === 404) return "unknown";
+    if (res.status === 409) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      return body.error === "live" ? "live" : "no herdr";
+    }
+    await ok(res);
+    return "ok";
   },
   /** Live session stream. EventSource reconnects by itself. */
   subscribe(onSessions: (s: Session[]) => void, onStatus?: (connected: boolean) => void): () => void {
