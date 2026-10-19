@@ -250,13 +250,32 @@ describe("reconcile", () => {
   });
 
   it("grid wraps to the next row inside the default inbox", () => {
-    const sessions = ["a", "b", "c", "d"].map((id) => session({ id }));
+    const sessions = ["a", "b", "d"].map((id) => session({ id }));
     const r = reconcile(sessions, [], NOW, testGen());
     const inbox = inboxOf(r.elements)!;
-    const [a, , , d] = sessions.map((s) => cardsOf(r.elements, s.id)[0]!);
+    const [a, , d] = sessions.map((s) => cardsOf(r.elements, s.id)[0]!);
     expect(d!.x).toBe(a!.x);
     expect(d!.y).toBeGreaterThan(a!.y + a!.height);
     expect(d!.y + d!.height).toBeLessThanOrEqual(inbox.y + inbox.height);
+  });
+
+  it("a fresh board gets the starter lanes with its inbox", () => {
+    const r = reconcile([session()], [], NOW, testGen());
+    expect(live(r.elements).filter((e) => kind(e) === "lane")).toHaveLength(8);
+    expect(live(r.elements).filter((e) => kind(e) === "lane-label")).toHaveLength(6);
+    // lanes are never patched
+    expect(reconcile([session({ status: "needs_user" })], r.elements, NOW, testGen()).touchedIds.some((id) =>
+      r.elements.some((e) => e.id === id && kind(e)?.startsWith("lane")),
+    )).toBe(false);
+  });
+
+  it("recreating a deleted inbox does not add lanes when the board has some", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen);
+    const els = a.elements.map((e) => (kind(e) === "inbox" ? { ...e, isDeleted: true } : e));
+    const r = reconcile([session(), session({ id: "s9" })], els, NOW, gen);
+    expect(live(r.elements).filter((e) => kind(e) === "inbox")).toHaveLength(1);
+    expect(live(r.elements).filter((e) => kind(e) === "lane")).toHaveLength(8);
   });
 
   it("recreates the inbox if the user deleted it", () => {
@@ -415,7 +434,7 @@ describe("reconcile: continued-in", () => {
     const card = cardsOf(r.elements, "B")[0]!;
     expect([card.x, card.y]).toEqual([rect.x, rect.y]);
     expect(partOf(r.elements, card, "card-title").text).toBe("Next");
-    expect(card.backgroundColor).toBe("#a5d8ff");
+    expect(card.backgroundColor).toBe("#ffec99");
     expect(reconcile(sessions, r.elements, NOW, gen).changed).toBe(false);
   });
 

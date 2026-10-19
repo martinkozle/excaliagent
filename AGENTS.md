@@ -6,7 +6,8 @@ a card. Read these before changing anything:
 - `docs/product.md`: the goal state. What the board must do and must never do.
 - `docs/design.md`: architecture, decisions with their reasons, and the
   verified (undocumented) data formats of Claude Code and herdr, with quirks.
-- `docs/roadmap.md`: what is next and the open questions.
+- `docs/roadmap.md`: platforms, open questions, and a map of the bigger tasks,
+  which live as GitHub issues (`gh issue list`).
 
 Keep these docs true. A change that alters behaviour, a data format, or a
 decision updates the matching doc in the same commit. When you verify a fact
@@ -64,7 +65,12 @@ npm run dev              # server + Vite HMR against the real ~/.claude (manual 
 ```
 
 Before handing off: unit tests, typecheck, `npm run build`, and the Playwright
-suite all pass.
+suite all pass. CI (`.github/workflows/ci.yml`) runs the same on Linux. macOS
+is supported but tested by hand by the maintainer; mark macOS-only facts in
+`docs/design.md` as verified or not.
+
+README screenshots are generated from synthetic data: `npm run screenshots`
+(writes `docs/images/`). Regenerate them when the board's look changes.
 
 ## Git handoff
 

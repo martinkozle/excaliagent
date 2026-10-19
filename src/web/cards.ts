@@ -64,8 +64,9 @@ export const TITLE_H = TITLE_SIZE * TITLE_LH;
 /** Fits two title lines and five detail lines. */
 export const CARD_H = Math.ceil(PAD + TITLE_MAX_LINES * TITLE_H + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD);
 
-export const INBOX_W = 20 + 3 * (CARD_W + 20);
-export const INBOX_H = 20 + 4 * (CARD_H + 20);
+/** A tall inbox: exactly 2 columns × 8 rows of cards with 20px gaps (see inbox.ts GAP). */
+export const INBOX_W = 20 + 2 * (CARD_W + 20);
+export const INBOX_H = 20 + 8 * (CARD_H + 20);
 export const INBOX_ORIGIN = { x: 40, y: 80 };
 
 export type CardMeta = { kind: "card"; source: Session["source"]; sessionId: string };
@@ -92,7 +93,7 @@ export function statusStyle(s: Session | undefined, now: number): CardStyle {
   if (NEEDS_INPUT.has(s.status))
     return { backgroundColor: "#ffc9c9", strokeColor: "#e03131", strokeStyle: "solid", fillStyle: "solid" };
   if (s.status === "busy")
-    return { backgroundColor: "#a5d8ff", strokeColor: "#1971c2", strokeStyle: "solid", fillStyle: "solid" };
+    return { backgroundColor: "#ffec99", strokeColor: "#f08c00", strokeStyle: "solid", fillStyle: "solid" };
   if (s.cacheExpiresAt > now)
     return { backgroundColor: "#b2f2bb", strokeColor: "#2f9e44", strokeStyle: "solid", fillStyle: "solid" };
   return { backgroundColor: "#e9ecef", strokeColor: "#868e96", strokeStyle: "solid", fillStyle: "solid" };
@@ -350,16 +351,18 @@ export function makeCard(
   ];
 }
 
-/** The inbox rectangle plus a free "inbox" title just above it. */
-export function makeInbox(gen: Gen, now: number, at = INBOX_ORIGIN): [ExcalidrawRectangleElement, ExcalidrawTextElement] {
-  const rect: ExcalidrawRectangleElement = {
+/** A grey dashed, transparent area rectangle (inbox, lane) with `customData`. */
+export function makeArea(
+  gen: Gen,
+  now: number,
+  box: { x: number; y: number; width: number; height: number },
+  customData: Record<string, unknown>,
+): ExcalidrawRectangleElement {
+  return {
     ...base(gen, now),
     id: gen.id(),
     type: "rectangle",
-    x: at.x,
-    y: at.y,
-    width: INBOX_W,
-    height: INBOX_H,
+    ...box,
     strokeColor: "#868e96",
     backgroundColor: "transparent",
     fillStyle: "solid",
@@ -367,25 +370,42 @@ export function makeInbox(gen: Gen, now: number, at = INBOX_ORIGIN): [Excalidraw
     strokeWidth: 1,
     roundness: { type: 3 },
     boundElements: null,
-    customData: { excaliagent: { kind: "inbox" } satisfies InboxMeta },
+    customData,
   };
-  const label = textElement(
+}
+
+/** A free Excalifont title just above an area at `at`. */
+export function makeAreaLabel(
+  gen: Gen,
+  now: number,
+  at: { x: number; y: number },
+  text: string,
+  customData: Record<string, unknown>,
+): ExcalidrawTextElement {
+  return textElement(
     gen,
     now,
     {
       x: at.x,
       y: at.y - TITLE_H - 8,
-      text: "inbox",
-      ...partBox("card-title", "inbox"),
+      text,
+      ...partBox("card-title", text),
       fontSize: TITLE_SIZE,
       fontFamily: TITLE_FONT,
       lineHeight: TITLE_LH,
       strokeColor: "#868e96",
       groupIds: [],
     },
-    { excaliagent: { kind: "inbox-label" } satisfies InboxMeta },
+    customData,
   );
-  return [rect, label];
+}
+
+/** The inbox rectangle plus a free "inbox" title just above it. */
+export function makeInbox(gen: Gen, now: number, at = INBOX_ORIGIN): [ExcalidrawRectangleElement, ExcalidrawTextElement] {
+  const rect = makeArea(gen, now, { ...at, width: INBOX_W, height: INBOX_H }, {
+    excaliagent: { kind: "inbox" } satisfies InboxMeta,
+  });
+  return [rect, makeAreaLabel(gen, now, at, "inbox", { excaliagent: { kind: "inbox-label" } satisfies InboxMeta })];
 }
 
 export function cardMeta(e: ExcalidrawElement): CardMeta | undefined {

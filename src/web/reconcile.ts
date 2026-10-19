@@ -9,6 +9,7 @@
 //   They move with the card's group; the one exception: when the title's wrapped
 //   line count changes, the details text is re-placed below it, relative to the
 //   rect's current x/y (it is an app-owned element inside the card's group).
+// Lanes ({kind:"lane"}) are created with a new board's inbox and never touched.
 // A card whose session is absent from `sessions` is restyled dormant; its texts
 // and link are left alone (nothing to regenerate them from).
 //
@@ -42,6 +43,7 @@ import {
   type Gen,
 } from "./cards.ts";
 import { nextSlot } from "./inbox.ts";
+import { hasLanes, makeStarterBoard } from "./lanes.ts";
 
 export interface ReconcileResult {
   /** Full new element array; `=== input` when nothing changed. */
@@ -293,10 +295,11 @@ function reconcileCards(
   for (const s of [...sessions.filter((s) => s.live), ...(opts.add ?? [])]) {
     if (carded.has(s.id)) continue;
     if (!inbox) {
-      const made = makeInbox(gen, now);
+      // A board without inbox and lanes is new: lay out the whole starter template.
+      const made = hasLanes(result) ? makeInbox(gen, now) : makeStarterBoard(gen, now);
       result.push(...made);
       touched.push(...made.map((e) => e.id));
-      inbox = made[0];
+      inbox = made.find(isInbox)!;
     }
     const card = makeCard(byId.get(s.id) ?? s, nextSlot(inbox, result), gen, now, measure);
     result.push(...card);

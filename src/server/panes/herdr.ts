@@ -8,7 +8,8 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { Desktop } from "../desktop/desktop.ts";
 import { createHerdrClient, HerdrError, type Connect } from "./herdr-client.ts";
-import { findHerdrClientPids } from "./herdr-clients.ts";
+import { createProcessTable, type ProcessTable } from "../desktop/process-table.ts";
+import { findHerdrClientPids, herdrSocketPath } from "./herdr-clients.ts";
 import type { Pane, PaneLink, ResumeRequest } from "./types.ts";
 
 export { createNoPaneLink } from "./none.ts";
@@ -63,7 +64,7 @@ export function pickWorkspace(panes: ListedPane[], root: string): string | undef
 }
 
 export function defaultHerdrSocketPath(): string {
-  return process.env.HERDR_SOCKET_PATH || join(homedir(), ".config/herdr/herdr.sock");
+  return herdrSocketPath(process.env, homedir()) ?? join(homedir(), ".config", "herdr", "herdr.sock");
 }
 
 export interface ProcessInfo {
@@ -112,7 +113,8 @@ export interface HerdrLinkOptions {
   connect?: Connect;
   /** When set, focus() also raises the terminal window hosting the herdr client. */
   desktop?: Desktop;
-  procRoot?: string;
+  /** Where herdr client processes are looked up (default: this platform's). */
+  processTable?: ProcessTable;
   /** Rebuild the pid map this long after resume() (the new process needs a moment). */
   resumeRefreshMs?: number;
 }
@@ -127,7 +129,8 @@ export type HerdrLink = PaneLink & {
 export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
   const { resyncMs = 30_000 } = opts;
   const socketPath = opts.socketPath ?? defaultHerdrSocketPath();
-  const clientPids = () => findHerdrClientPids({ socketPath, procRoot: opts.procRoot });
+  const table = opts.processTable ?? createProcessTable();
+  const clientPids = () => findHerdrClientPids({ socketPath, table });
   let map = new Map<number, Pane>();
   const listeners = new Set<() => void>();
   let closed = false;

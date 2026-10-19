@@ -73,26 +73,33 @@ export function menuItems(sessionId: string, s: Session | undefined): MenuItem[]
   return items;
 }
 
-/** Header + items, in px; only used to decide whether the panel fits above the menu. */
-const MENU_HEADER_H = 32;
-const MENU_ITEM_H = 30;
+/** Estimated panel height (header + items) until the real one is measured. */
+export function estimatePanelHeight(itemCount: number): number {
+  return 36 + itemCount * 30;
+}
 
-export type Placement = { left: number; width: number } & ({ bottom: number } | { top: number });
+export type Placement = { left: number; top: number; width: number; side: "left" | "right" };
+const SIDE_GAP = 4;
+const EDGE = 8;
 
 /**
- * Glue our panel to Excalidraw's context menu (viewport coords): directly above
- * it (CSS `bottom` = viewport height − menu top), or below it when there is no
- * room above.
+ * Put our panel beside Excalidraw's context menu (viewport coords), top-aligned
+ * with it: on the right if it fits, else on the left; then clamped so it stays
+ * fully inside the viewport. (Above/below does not work: on a 1080p screen
+ * Excalidraw's own menu is ~730px tall.)
  */
 export function menuPlacement(
-  menu: { left: number; top: number; bottom: number; width: number },
-  itemCount: number,
-  viewportHeight: number,
+  menu: { left: number; top: number; right: number; bottom: number },
+  panel: { width: number; height: number },
+  viewport: { width: number; height: number },
 ): Placement {
-  const height = MENU_HEADER_H + itemCount * MENU_ITEM_H;
-  return menu.top - height >= 8
-    ? { left: menu.left, width: menu.width, bottom: viewportHeight - menu.top }
-    : { left: menu.left, width: menu.width, top: menu.bottom };
+  const right = menu.right + SIDE_GAP;
+  const fitsRight = right + panel.width <= viewport.width - EDGE;
+  const side = fitsRight ? "right" : "left";
+  const rawLeft = fitsRight ? right : menu.left - SIDE_GAP - panel.width;
+  const left = Math.max(EDGE, Math.min(rawLeft, viewport.width - EDGE - panel.width));
+  const top = Math.max(EDGE, Math.min(menu.top, viewport.height - EDGE - panel.height));
+  return { left, top, width: panel.width, side };
 }
 
 /** Cheap change detector over element ids + versions. */

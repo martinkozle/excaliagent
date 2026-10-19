@@ -2,70 +2,79 @@
  * Raise the desktop window that hosts a process (e.g. the terminal running a
  * herdr client), so focusing a pane also brings its terminal to the front.
  *
- * Walks each candidate pid's ancestors via /proc/<pid>/stat and focuses the
- * first ancestor that owns a window. Supported: Hyprland (hyprctl) and Sway
- * (swaymsg). Anything else is a no-op. Never throws.
+ * Walks each candidate pid's ancestors through a ProcessTable and acts on the
+ * first ancestor that is a window / app:
+ * - Linux + Hyprland: `hyprctl clients -j` → `hyprctl dispatch focuswindow address:<addr>`
+ * - Linux + Sway: `swaymsg -t get_tree` → `swaymsg [pid=N] focus`
+ * - macOS: first ancestor whose executable lives in an `.app` bundle →
+ *   `open -a <bundle>` (activates the app; no Accessibility permission).
+ *   Unverified on real hardware.
+ * - anything else: no-op.
+ * Never throws; raise() resolves false when nothing was raised.
  */
-import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { defaultExec, defaultLog, describeExecFailure, logOnce, type Exec, type Log } from "./exec.ts";
+import { createProcessTable, type ProcessTable } from "./process-table.ts";
 
-export type Exec = (file: string, args: string[], opts: { timeout: number }) => Promise<{ stdout: string }>;
+export { defaultExec, type Exec };
 
-export const defaultExec: Exec = (file, args, opts) =>
-  new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: opts.timeout, maxBuffer: 16 << 20, encoding: "utf8" }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve({ stdout });
-    });
-  });
+export type DesktopKind = "hyprland" | "sway" | "macos" | "none";
 
 export interface Desktop {
-  /** Focus the window of the first pid (or ancestor) that has one. True if raised. */
+  /** Which raise strategy is active (for the startup log). */
+  readonly kind: DesktopKind;
+  /** Bring the window of the first pid (or ancestor) that has one to the front. True if raised. */
   raise(pids: number[]): Promise<boolean>;
 }
 
 export interface DesktopOptions {
+  platform?: NodeJS.Platform;
   env?: Record<string, string | undefined>;
   exec?: Exec;
+  /** Defaults to createProcessTable({ platform, procRoot, exec }). */
+  table?: ProcessTable;
   procRoot?: string;
   timeoutMs?: number;
+  /** macOS: why a raise did nothing, reported once per cause (default: console.warn). */
+  log?: Log;
 }
 
-/** ppid from /proc/<pid>/stat; comm (field 2) may contain spaces and parens. */
-export async function parentPid(procRoot: string, pid: number): Promise<number | undefined> {
-  try {
-    const stat = await readFile(join(procRoot, String(pid), "stat"), "utf8");
-    const rest = stat.slice(stat.lastIndexOf(")") + 1).trim().split(/\s+/);
-    const ppid = Number(rest[1]);
-    return Number.isInteger(ppid) && ppid > 0 ? ppid : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** pid, then its parents up to (excluding) init. */
-async function ancestry(procRoot: string, pid: number): Promise<number[]> {
+/** pid, then its parents up to (excluding) init/launchd. */
+async function ancestry(table: ProcessTable, pid: number): Promise<number[]> {
   const chain: number[] = [];
   const seen = new Set<number>();
   let cur: number | undefined = pid;
   while (cur !== undefined && cur > 1 && !seen.has(cur) && chain.length < 64) {
     seen.add(cur);
     chain.push(cur);
-    cur = await parentPid(procRoot, cur);
+    cur = await table.parent(cur);
   }
   return chain;
 }
 
-interface WindowManager {
-  /** pid → focus argument, for every window. */
-  windows(): Promise<Map<number, string>>;
+/** Strategy: find a raise target for a pid (or undefined), then raise it. */
+interface Raiser {
+  /** Prepared once per raise() (e.g. one window listing). */
+  prepare(): Promise<(pid: number) => Promise<string | undefined>>;
   focus(target: string): Promise<void>;
+  /** Called with the ancestor chains when no target was found. */
+  notFound?(chains: number[][]): Promise<void>;
+  /** Called with the pids given (empty: no herdr client found). */
+  noPids?(): void;
 }
 
-function hyprland(exec: Exec, timeout: number): WindowManager {
+function windowManager(listWindows: () => Promise<Map<number, string>>, focus: (t: string) => Promise<void>): Raiser {
   return {
-    async windows() {
+    async prepare() {
+      const windows = await listWindows();
+      return async (pid) => windows.get(pid);
+    },
+    focus,
+  };
+}
+
+function hyprland(exec: Exec, timeout: number): Raiser {
+  return windowManager(
+    async () => {
       const { stdout } = await exec("hyprctl", ["clients", "-j"], { timeout });
       const out = new Map<number, string>();
       for (const c of JSON.parse(stdout) as { pid?: unknown; address?: unknown }[]) {
@@ -73,10 +82,10 @@ function hyprland(exec: Exec, timeout: number): WindowManager {
       }
       return out;
     },
-    async focus(address) {
+    async (address) => {
       await exec("hyprctl", ["dispatch", "focuswindow", `address:${address}`], { timeout });
     },
-  };
+  );
 }
 
 interface SwayNode {
@@ -85,9 +94,9 @@ interface SwayNode {
   floating_nodes?: SwayNode[];
 }
 
-function sway(exec: Exec, timeout: number): WindowManager {
-  return {
-    async windows() {
+function sway(exec: Exec, timeout: number): Raiser {
+  return windowManager(
+    async () => {
       const { stdout } = await exec("swaymsg", ["-t", "get_tree"], { timeout });
       const out = new Map<number, string>();
       const walk = (n: SwayNode) => {
@@ -97,33 +106,93 @@ function sway(exec: Exec, timeout: number): WindowManager {
       walk(JSON.parse(stdout) as SwayNode);
       return out;
     },
-    async focus(pid) {
+    async (pid) => {
       await exec("swaymsg", [`[pid=${pid}]`, "focus"], { timeout });
+    },
+  );
+}
+
+/** Outermost `.app` bundle containing an executable path, e.g. /Applications/kitty.app. */
+export function appBundleOf(exe: string): string | undefined {
+  const m = /^(\/.*?\.app)\//.exec(exe);
+  return m?.[1];
+}
+
+function macos(exec: Exec, timeout: number, table: ProcessTable, log: Log): Raiser {
+  const once = logOnce(log);
+  return {
+    async prepare() {
+      return async (pid) => {
+        const exe = await table.exe(pid);
+        return exe ? appBundleOf(exe) : undefined;
+      };
+    },
+    async focus(bundle) {
+      const args = ["-a", bundle];
+      try {
+        await exec("open", args, { timeout });
+      } catch (e) {
+        once(`open:${bundle}`, `raise: ${describeExecFailure("open", args, e)}`);
+        throw e;
+      }
+    },
+    async notFound(chains) {
+      const shown = await Promise.all(
+        chains.map(async (chain) =>
+          (await Promise.all(chain.map(async (p) => `${p} ${(await table.exe(p)) ?? "?"}`))).join(" <- "),
+        ),
+      );
+      once("no-app", `raise: no .app bundle among the ancestors of herdr client(s): ${shown.join("; ")}`);
+    },
+    noPids() {
+      once("no-pids", "raise: no herdr client process found (is herdr running in a terminal on this Mac?)");
     },
   };
 }
 
 export function createDesktop(opts: DesktopOptions = {}): Desktop {
-  const { env = process.env, exec = defaultExec, procRoot = "/proc", timeoutMs = 2000 } = opts;
-  const wm = env.HYPRLAND_INSTANCE_SIGNATURE
-    ? hyprland(exec, timeoutMs)
-    : env.SWAYSOCK
-      ? sway(exec, timeoutMs)
-      : undefined;
+  const { platform = process.platform, env = process.env, exec = defaultExec, timeoutMs = 2000 } = opts;
+  const table = opts.table ?? createProcessTable({ platform, procRoot: opts.procRoot, exec, timeoutMs, log: opts.log });
+  const log = opts.log ?? defaultLog;
+  const kind: DesktopKind =
+    platform === "darwin"
+      ? "macos"
+      : platform === "linux" && env.HYPRLAND_INSTANCE_SIGNATURE
+        ? "hyprland"
+        : platform === "linux" && env.SWAYSOCK
+          ? "sway"
+          : "none";
+  const raiser =
+    kind === "macos"
+      ? macos(exec, timeoutMs, table, log)
+      : kind === "hyprland"
+        ? hyprland(exec, timeoutMs)
+        : kind === "sway"
+          ? sway(exec, timeoutMs)
+          : undefined;
   return {
+    kind,
     async raise(pids) {
-      if (!wm || pids.length === 0) return false;
+      if (!raiser) return false;
+      if (pids.length === 0) {
+        raiser.noPids?.();
+        return false;
+      }
       try {
-        const windows = await wm.windows();
+        const targetOf = await raiser.prepare();
+        const chains: number[][] = [];
         for (const pid of pids) {
-          for (const p of await ancestry(procRoot, pid)) {
-            const target = windows.get(p);
+          const chain = await ancestry(table, pid);
+          chains.push(chain);
+          for (const p of chain) {
+            const target = await targetOf(p);
             if (target !== undefined) {
-              await wm.focus(target);
+              await raiser.focus(target);
               return true;
             }
           }
         }
+        await raiser.notFound?.(chains);
       } catch {
         // no compositor, timeout, bad output: just don't raise
       }

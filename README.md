@@ -2,6 +2,8 @@
 
 A spatial scratchboard for your Claude Code sessions, on an Excalidraw canvas.
 
+![The board: session cards triaged into lanes](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/board.png)
+
 Every session is a card. You drag cards wherever they make sense to you (parked,
 blocked on a colleague, come back to, done) and draw anything around them. The
 app keeps each card's **color and label** in sync with the session and never
@@ -19,10 +21,12 @@ PR #12                            ← last PR link
 | Color | Meaning |
 |---|---|
 | red | needs you (input, permission, trust, blocked) |
-| blue | busy |
+| yellow | busy |
 | green | idle, prompt cache still warm: review it before it goes cold |
 | grey | idle, cache cold |
 | dashed, pale | dormant (not running) |
+
+![Right-click on a card: the excaliagent section next to the Excalidraw menu](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/card-menu.png)
 
 ## Run
 
@@ -32,7 +36,10 @@ npx excaliagent
 
 It starts a server on `127.0.0.1` and opens the board in your browser.
 
-- **Live sessions** appear in the *inbox* rectangle by themselves.
+- **Live sessions** appear in the *inbox* by themselves. A new board comes with
+  lanes next to it (To Do, In Progress, Review, Blocked, Parked, Done, and two
+  blank ones to name yourself); they are plain shapes you can rename, move or
+  delete. On an older board, add them from the main menu: *Add starter lanes*.
 - **Dormant sessions** are added from the **Sessions** panel (top right).
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
@@ -62,6 +69,12 @@ See `npx excaliagent --help`.
 - Its only actions: focus a herdr pane, raise the terminal window, and start
   `claude --resume <id>` in a new herdr pane. It never types into a running
   session.
+
+## Platforms
+
+Linux and macOS. Raising the terminal window after a jump works on Hyprland,
+Sway and macOS. Windows is not supported yet
+([#1](https://github.com/martinkozle/excaliagent/issues/1), contributions welcome).
 
 ## herdr (optional)
 

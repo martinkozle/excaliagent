@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CaptureUpdateAction,
   Excalidraw,
+  MainMenu,
   Sidebar,
   restoreElements,
   viewportCoordsToSceneCoords,
@@ -24,6 +25,7 @@ import { CardMenu } from "./CardMenu.tsx";
 import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
+import { appendLanes } from "./lanes.ts";
 
 // Serve Excalidraw's fonts from our own server, never a CDN.
 (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH = "/";
@@ -208,6 +210,19 @@ export function App() {
     };
   }, [excalidraw, sessionFor]);
 
+  /** Main menu → "Add starter lanes": a normal, undoable edit. */
+  const addLanes = useCallback(() => {
+    const ex = excalidraw;
+    if (!ex) return;
+    const next = appendLanes(ex.getSceneElementsIncludingDeleted(), defaultGen, Date.now());
+    if (!next) {
+      ex.setToast({ message: "No inbox on the board to put lanes beside.", duration: 3000, closable: true });
+      return;
+    }
+    ex.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+    save(true);
+  }, [excalidraw, save]);
+
   const closeMenu = useCallback(() => setMenuFor(null), []);
   const onMenuAction = useCallback(
     (item: MenuItem) => {
@@ -271,6 +286,24 @@ export function App() {
           </div>
         )}
       >
+        <MainMenu>
+          <MainMenu.Item onSelect={addLanes}>Add starter lanes</MainMenu.Item>
+          <MainMenu.Separator />
+          <MainMenu.DefaultItems.LoadScene />
+          <MainMenu.DefaultItems.SaveToActiveFile />
+          <MainMenu.DefaultItems.Export />
+          <MainMenu.DefaultItems.SaveAsImage />
+          <MainMenu.DefaultItems.SearchMenu />
+          <MainMenu.DefaultItems.Help />
+          <MainMenu.DefaultItems.ClearCanvas />
+          <MainMenu.Separator />
+          <MainMenu.Group title="Excalidraw links">
+            <MainMenu.DefaultItems.Socials />
+          </MainMenu.Group>
+          <MainMenu.Separator />
+          <MainMenu.DefaultItems.ToggleTheme />
+          <MainMenu.DefaultItems.ChangeCanvasBackground />
+        </MainMenu>
         <Sidebar name={PICKER}>
           <Sidebar.Header>Dormant sessions</Sidebar.Header>
           <div style={{ overflowY: "auto", padding: "0 12px 12px" }}>

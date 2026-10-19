@@ -33,7 +33,8 @@
     "test:watch": "vitest",
     "test:e2e": "npm run build:web && playwright test",
     "demo": "node scripts/demo.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "screenshots": "node scripts/screenshots.ts"
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "^0.18.1",

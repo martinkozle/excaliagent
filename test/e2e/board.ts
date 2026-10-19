@@ -1,6 +1,6 @@
 // Test harness: a seeded mock Claude home + a real excaliagent server process.
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMockClaude, type MockClaude } from "../mock-claude.ts";
@@ -15,6 +15,8 @@ export interface Board {
   restart(): Promise<void>;
   /** Cards from the saved scene.json: what the frontend persisted. */
   savedCards(): SavedCard[];
+  /** Non-deleted elements of the saved scene.json ([] if none yet). */
+  savedElements(): Record<string, any>[];
   stop(): void;
 }
 
@@ -35,6 +37,8 @@ export interface SavedCard {
 export interface BoardOptions {
   /** Link panes through this (isolated!) herdr socket. Default: herdr disabled. */
   herdrSocket?: string;
+  /** Pre-existing scene.json contents (an existing board). */
+  scene?: { elements: unknown[]; appState?: Record<string, unknown> };
 }
 
 async function startServer(
@@ -75,6 +79,7 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
   const mock = createMockClaude();
   seed(mock);
   const stateDir = mkdtempSync(join(tmpdir(), "excaliagent-e2e-state-"));
+  if (opts.scene) writeFileSync(join(stateDir, "scene.json"), JSON.stringify({ appState: {}, ...opts.scene }));
   let { proc, url } = await startServer(mock.dir, stateDir, opts);
 
   const board: Board = {
@@ -88,6 +93,14 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
       ({ proc, url } = await startServer(mock.dir, stateDir, opts));
       board.url = url;
       board.origin = new URL(url).origin;
+    },
+    savedElements() {
+      try {
+        const scene = JSON.parse(readFileSync(join(stateDir, "scene.json"), "utf8")) as { elements: Record<string, any>[] };
+        return scene.elements.filter((e) => !e.isDeleted);
+      } catch {
+        return [];
+      }
     },
     savedCards() {
       let scene: { elements: Record<string, any>[] };

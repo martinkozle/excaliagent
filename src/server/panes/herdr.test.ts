@@ -10,21 +10,17 @@ import {
   type FakeRequest,
 } from "./__fixtures__/fake-herdr.ts";
 import { sleep, tempSocketDir, waitFor } from "./__fixtures__/test-util.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createProcessTable, type ProcessTable } from "../desktop/process-table.ts";
+import { fakeProcRoot } from "../desktop/__fixtures__/fake-proc.ts";
 
-/** Fake /proc with one herdr client (pid 700) of socketPath and the server (701). */
-function fakeProcWithClient(dir: string, socketPath: string): string {
-  const root = join(dir, "proc");
-  const add = (pid: number, argv: string[], env: string) => {
-    mkdirSync(join(root, String(pid)), { recursive: true });
-    writeFileSync(join(root, String(pid), "comm"), "herdr\n");
-    writeFileSync(join(root, String(pid), "cmdline"), argv.join("\0") + "\0");
-    writeFileSync(join(root, String(pid), "environ"), env + "\0");
-  };
-  add(700, ["herdr"], `HERDR_SOCKET_PATH=${socketPath}`);
-  add(701, ["herdr", "server"], `HERDR_SOCKET_PATH=${socketPath}`);
-  return root;
+/** Linux process table over a fake /proc: one herdr client (700) of socketPath and the server (701). */
+function fakeProcWithClient(_dir: string, socketPath: string): ProcessTable {
+  const p = fakeProcRoot([
+    { pid: 700, ppid: 1, comm: "herdr", argv: ["herdr"], env: { HERDR_SOCKET_PATH: socketPath } },
+    { pid: 701, ppid: 1, comm: "herdr", argv: ["herdr", "server"], env: { HERDR_SOCKET_PATH: socketPath } },
+  ]);
+  cleanups.push(p.cleanup);
+  return createProcessTable({ platform: "linux", procRoot: p.root });
 }
 
 let cleanups: (() => unknown)[] = [];
@@ -224,7 +220,7 @@ describe("createHerdrLink", () => {
 
   it("clientPids() finds herdr clients of our socket", async () => {
     const { socketPath, dir } = await setup();
-    const l = link({ socketPath, procRoot: fakeProcWithClient(dir, socketPath) });
+    const l = link({ socketPath, processTable: fakeProcWithClient(dir, socketPath) });
     expect(await l.clientPids()).toEqual([700]);
   });
 
@@ -233,7 +229,7 @@ describe("createHerdrLink", () => {
     const raised: number[][] = [];
     const l = link({
       socketPath,
-      procRoot: fakeProcWithClient(dir, socketPath),
+      processTable: fakeProcWithClient(dir, socketPath),
       desktop: {
         raise: async (pids) => {
           expect(fake.requests.some((r) => r.method === "pane.focus")).toBe(true);
@@ -252,7 +248,7 @@ describe("createHerdrLink", () => {
     let raises = 0;
     const l = link({
       socketPath,
-      procRoot: fakeProcWithClient(dir, socketPath),
+      processTable: fakeProcWithClient(dir, socketPath),
       desktop: {
         raise: async () => {
           raises++;
@@ -431,7 +427,7 @@ describe("createHerdrLink resume", () => {
     const raised: number[][] = [];
     const l = link({
       socketPath,
-      procRoot: fakeProcWithClient(dir, socketPath),
+      processTable: fakeProcWithClient(dir, socketPath),
       desktop: { raise: async (p) => (raised.push(p), true) },
     });
     await waitFor(() => l.available());

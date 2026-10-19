@@ -116,11 +116,34 @@ describe("menuItems", () => {
 });
 
 describe("menuPlacement", () => {
-  const menu = { left: 100, top: 400, bottom: 600, width: 180 };
-  it("sits directly above the menu, same left and width", () => {
-    expect(menuPlacement(menu, 3, 900)).toEqual({ left: 100, width: 180, bottom: 900 - 400 });
+  const vp = { width: 1400, height: 900 };
+  const panel = { width: 220, height: 150 };
+  const menu = (left: number, top: number, width = 200, height = 400) => ({ left, top, width, height, right: left + width, bottom: top + height });
+
+  it("sits right of the menu, top-aligned", () => {
+    expect(menuPlacement(menu(100, 200), panel, vp)).toEqual({ left: 300 + 4, top: 200, width: 220, side: "right" });
   });
-  it("goes below the menu when there is no room above", () => {
-    expect(menuPlacement({ ...menu, top: 30, bottom: 230 }, 3, 900)).toEqual({ left: 100, width: 180, top: 230 });
+
+  it("goes left of the menu when the right side has no room", () => {
+    expect(menuPlacement(menu(1100, 200), panel, vp)).toEqual({ left: 1100 - 4 - 220, top: 200, width: 220, side: "left" });
+  });
+
+  it("clamps vertically into the viewport", () => {
+    expect(menuPlacement(menu(100, 850, 200, 40), panel, vp).top).toBe(900 - 150 - 8);
+    expect(menuPlacement(menu(100, -20), panel, vp).top).toBe(8);
+  });
+
+  it("1920×1080 with Excalidraw's ~730px menu: fully visible, no overlap", () => {
+    const view = { width: 1920, height: 1080 };
+    for (const [x, y] of [[960, 300], [1700, 340], [200, 340], [1700, 0]] as const) {
+      const m = menu(x, y, 230, 730);
+      const p = menuPlacement(m, { width: 230, height: 190 }, view);
+      expect(p.left).toBeGreaterThanOrEqual(0);
+      expect(p.left + p.width).toBeLessThanOrEqual(view.width);
+      expect(p.top).toBeGreaterThanOrEqual(0);
+      expect(p.top + 190).toBeLessThanOrEqual(view.height);
+      const overlapX = p.left < m.right && m.left < p.left + p.width;
+      expect(overlapX).toBe(false);
+    }
   });
 });

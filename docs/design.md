@@ -180,15 +180,44 @@ registry plus file watching is enough, and "no setup" is a goal.
   else `workspace.create` labelled with the repo name. Then
   `pane.send_text "claude --resume <id>\n"` and raise. The id is validated
   (`/^[0-9a-f-]{36}$/i`) and the command built server-side only.
-- **Raise** (`src/server/desktop`): find herdr *client* processes in `/proc`
-  (comm `herdr`, no `server` arg) attached to our socket (from their
-  `HERDR_SOCKET_PATH`, else `$HOME/.config/herdr/herdr.sock`). Clients on another
-  server are never raised; clients whose socket can't be read are a fallback.
-  Walk their ancestors to a window: Hyprland `hyprctl clients -j` →
-  `hyprctl dispatch focuswindow address:<addr>` (switches workspace); Sway
-  `swaymsg -t get_tree` → `swaymsg [pid=N] focus`. Other desktops: no-op.
+- **Socket**: `HERDR_SOCKET_PATH`, else `$XDG_CONFIG_HOME/herdr/herdr.sock`, else
+  `~/.config/herdr/herdr.sock` (checked on herdr 0.9.0 / Linux with isolated
+  servers). The herdr binary has no `~/Library` path, so macOS is assumed to be
+  the same: *unverified on real hardware (maintainer to test)*.
+- **Raise** (`src/server/desktop`): find herdr *client* processes (executable
+  name `herdr`, no `server` arg) attached to our socket (computed as above from
+  their environment). Clients on another server are never raised; clients whose
+  environment can't be read are a fallback. Walk their ancestors to something
+  that can be raised:
+  - Linux + Hyprland: `hyprctl clients -j` → `hyprctl dispatch focuswindow
+    address:<addr>` (switches workspace).
+  - Linux + Sway: `swaymsg -t get_tree` → `swaymsg [pid=N] focus`.
+  - macOS: the first ancestor whose executable is inside an `.app` bundle
+    (outermost, e.g. `/Applications/kitty.app/Contents/MacOS/kitty` →
+    `/Applications/kitty.app`) → `open -a <bundle>`. This activates the app (all
+    its windows come forward); no Accessibility permission is needed.
+    *Unverified on real hardware (maintainer to test).* When nothing is raised,
+    the server logs once per cause: no herdr client found, no `.app` among the
+    ancestors (with the pid/executable chain), or the failing command with its
+    stderr (`open -a …`, `ps …`).
+  - Anything else: no-op. Startup prints `raise window on focus: <hyprland |
+    sway | macos | unsupported here | off (--no-raise)>`.
+
   `--no-raise` disables it. A browser cannot raise another app's window, which
   is why the server does it.
+- **Process table** (`src/server/desktop/process-table.ts`): Linux reads `/proc`
+  (`stat`, `cmdline`, `environ`, `exe`; no subprocesses). macOS has no `/proc`:
+  `ps -axww -o pid=,ppid=,comm=` (comm is the full executable path and may
+  contain spaces), cached for 1 s; `ps -ww -o command= -p N` for argv and
+  `ps -E -ww -o command= -p N` for the environment (own-user processes only).
+  Arguments and environment values containing spaces are approximate there. All
+  `ps` flags and output shapes are *unverified on real hardware (maintainer to
+  test)*; unit tests run the parsers against hand-written fixtures. Other
+  platforms get an empty table (no raise).
+- **Portability**: the rest of the server is platform-neutral Node (Unix
+  sockets, `fs.watch` on `~/.claude/sessions` with a poll fallback,
+  `process.kill(pid, 0)` with EPERM = alive, `open` vs `xdg-open` for the
+  browser). Windows is out of scope.
 
 ## The board
 
@@ -217,16 +246,33 @@ re-fitted, so a late font load cannot leave clipped text.
 | State | Fill | Stroke |
 |---|---|---|
 | `needs_user`, `waiting`, `needs_trust`, `blocked` | `#ffc9c9` | `#e03131` |
-| `busy` | `#a5d8ff` | `#1971c2` |
+| `busy` | `#ffec99` | `#f08c00` |
 | `idle`, cache warm | `#b2f2bb` | `#2f9e44` |
 | `idle`, cache cold or unknown | `#e9ecef` | `#868e96` |
 | dormant, `exited`, or session unknown | `#f8f9fa` | `#adb5bd`, dashed |
 
-### Inbox
+### Inbox and lanes (`src/web/cards.ts`, `src/web/inbox.ts`, `src/web/lanes.ts`)
 
-A rectangle with `customData.excaliagent = {kind:"inbox"}` plus a free "inbox"
-text, created once (980×824, 3×4 cards), moved and resized by the user. New
-cards take the first free grid slot inside it; when full, rows continue below.
+- **Inbox**: a grey dashed, transparent rectangle with
+  `customData.excaliagent = {kind:"inbox"}` plus a free Excalifont "inbox" text
+  above it (`{kind:"inbox-label"}`). New boards get a tall one at (40, 80):
+  660×1628, i.e. 2 cards wide × 8 rows (20 px gaps). The user moves and resizes
+  it. New cards take the first free grid slot inside its current bounds
+  (`nextSlot`: columns = what fits the width, row-major, skipping any slot that
+  overlaps a non-deleted card); when full, rows continue below it. Existing
+  inboxes keep whatever size they have (older boards: 980×824, 3 columns).
+- **Starter lanes** (Kanban): 8 rectangles one card wide (340 = 300 + 2×20),
+  same height as the inbox, 40 px apart, starting 40 px right of the inbox and
+  top-aligned with it. Same grey dashed transparent look. The first six have a
+  free Excalifont title above them: To Do, In Progress, Review, Blocked, Parked,
+  Done; the last two are untitled. Markers only: `{kind:"lane"}` /
+  `{kind:"lane-label"}`. The app never patches lanes; the user owns them
+  (renaming = editing the text). Cards are only ever placed in the inbox; moving
+  them between lanes is the user's job.
+- **When they are created**: when reconcile needs an inbox and the board has
+  neither an inbox nor any lane, it creates the whole template (inbox + lanes) in
+  one go. If lanes exist but the inbox was deleted, only the inbox is recreated.
+  Existing boards get lanes from the main menu ("Add starter lanes", below).
 
 ### What the app may change (`src/web/reconcile.ts`)
 
@@ -234,8 +280,8 @@ Reconcile is pure: `(sessions, elements, now, gen, {add, measure}) →
 {elements, changed, spawned, patched, retargeted, touchedIds}`; a no-op returns
 the same array.
 
-- Live session without a card → spawn in the inbox (creating the inbox if
-  missing). Picker adds (`opts.add`) spawn even when dormant. Dormant session
+- Live session without a card → spawn in the inbox (creating the inbox, and on
+  a board with no lanes the starter lanes, if missing). Picker adds (`opts.add`) spawn even when dormant. Dormant session
   without a card → nothing. Soft-deleted cards count as no card.
 - Existing card → rect: only colours and `link`. Texts: only
   `text`/`originalText` and their box size; the details text is re-placed under
@@ -261,11 +307,19 @@ the same array.
 - **Right-click a card**: Excalidraw 0.18 hardcodes its context menu (no API),
   and injecting into its React-managed DOM breaks on re-render. So
   `src/web/CardMenu.tsx` renders its own panel, portalled into the `.excalidraw`
-  root (dark mode variables) and glued flush above Excalidraw's
-  `.popover .context-menu` (below when there is no room), tinted with
-  `--color-primary-light`. Items: Focus pane | Resume in herdr, Copy resume
+  root (dark mode variables) and placed beside Excalidraw's
+  `.popover .context-menu`, top-aligned with it: on the right if it fits, else
+  on the left, then clamped fully into the viewport (`menuPlacement` in
+  `src/web/board.ts`; it uses the panel's measured height). Above/below does not
+  work: on a 1080p screen Excalidraw's own menu is ~730 px tall. Tinted with
+  `--color-primary-light`, header in `--color-primary`. Items: Focus pane | Resume in herdr, Copy resume
   command, Copy resume command with cd, Open PR. They act on pointerdown and let
   the event bubble, so Excalidraw closes its menu and ours follows.
+- **Main menu**: Excalidraw's `<MainMenu>` with all of its default items
+  re-listed (`MainMenu.DefaultItems.*`, as Excalidraw's own default menu) plus
+  "Add starter lanes" at the top. It appends the lanes beside the current
+  inbox's bounds (`appendLanes`; toast if there is no inbox) as a normal
+  undoable edit (`CaptureUpdateAction.IMMEDIATELY`), unlike reconcile's patches.
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
 

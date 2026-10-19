@@ -16,6 +16,8 @@
       [
         "x86_64-linux"
         "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
       ]
       (
         system:
@@ -23,17 +25,22 @@
           pkgs = import nixpkgs { inherit system; };
         in
         {
-          devShells.default = pkgs.mkShell {
-            packages = with pkgs; [
-              nodejs_24
-              chromium
-              git
-            ];
-
-            # Playwright e2e tests use the Nix chromium instead of downloading one.
-            PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-          };
+          # nixpkgs has no chromium for macOS: there, Playwright downloads its own
+          # (`npx playwright install chromium`).
+          devShells.default = pkgs.mkShell (
+            {
+              packages = with pkgs; [
+                nodejs_24
+                git
+              ]
+              ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.chromium ];
+            }
+            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+              # Playwright e2e tests use the Nix chromium instead of downloading one.
+              PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
+              PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+            }
+          );
 
           formatter = pkgs.nixfmt;
         }

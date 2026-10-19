@@ -30,9 +30,8 @@ function openBrowser(url: string) {
 async function main(args: CliArgs) {
   const token = randomBytes(24).toString("base64url");
   const source = createClaudeSource({ claudeDir: args.claudeDir });
-  const panes = args.herdr
-    ? createHerdrLink({ desktop: args.raise ? createDesktop({ env: process.env }) : undefined })
-    : createNoPaneLink();
+  const desktop = args.herdr && args.raise ? createDesktop({ env: process.env }) : undefined;
+  const panes = args.herdr ? createHerdrLink({ desktop }) : createNoPaneLink();
   const hub = createHub({ source, panes });
   await hub.start();
   const scenes = createSceneStore(args.stateDir ?? defaultStateDir());
@@ -64,6 +63,7 @@ async function main(args: CliArgs) {
   console.log(`excaliagent ${args.dev ? "(dev) " : ""}listening on http://127.0.0.1:${server.port}`);
   console.log(`scene: ${scenes.path}`);
   console.log(`herdr: ${panes.available() ? "connected" : args.herdr ? "not running (will retry)" : "disabled"}`);
+  if (args.herdr) console.log(`raise window on focus: ${!desktop ? "off (--no-raise)" : desktop.kind === "none" ? "unsupported here" : desktop.kind}`);
   console.log(`open: ${url}`);
   if (args.open) openBrowser(url);
 

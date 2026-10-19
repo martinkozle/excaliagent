@@ -11,7 +11,7 @@ const ID = {
   dormantA: "22222222-0000-4000-8000-000000000001",
 };
 const RED = "#ffc9c9";
-const BLUE = "#a5d8ff";
+const YELLOW = "#ffec99";
 const GREEN = "#b2f2bb";
 const GREY = "#e9ecef";
 const DORMANT = "#f8f9fa";
@@ -69,10 +69,32 @@ async function cardPoint(page: Page, sessionId: string) {
   }, sessionId);
 }
 
+/** Our panel is fully in the viewport, beside Excalidraw's menu, top-aligned unless clamped. */
+async function expectBeside(page: Page) {
+  const ours = (await page.locator(".excaliagent-menu").boundingBox())!;
+  const theirs = (await page.locator(".excalidraw .context-menu").boundingBox())!;
+  const vp = page.viewportSize()!;
+  expect(ours.x).toBeGreaterThanOrEqual(0);
+  expect(ours.y).toBeGreaterThanOrEqual(0);
+  expect(ours.x + ours.width).toBeLessThanOrEqual(vp.width);
+  expect(ours.y + ours.height).toBeLessThanOrEqual(vp.height);
+  const overlapX = ours.x < theirs.x + theirs.width && theirs.x < ours.x + ours.width;
+  expect(overlapX).toBe(false);
+  if (theirs.y + ours.height <= vp.height - 8) expect(Math.abs(ours.y - theirs.y)).toBeLessThanOrEqual(1);
+}
+
+const LANE_TITLES = ["To Do", "In Progress", "Review", "Blocked", "Parked", "Done"];
+const lanes = () => board.savedElements().filter((e) => e.customData?.excaliagent?.kind === "lane");
+const laneTitles = () =>
+  board
+    .savedElements()
+    .filter((e) => e.customData?.excaliagent?.kind === "lane-label")
+    .map((e) => e.text);
+
 test("live sessions spawn as colored cards in the inbox; dormant ones do not", async ({ page }) => {
   await open(page);
   await expect.poll(() => board.savedCards().length).toBe(5);
-  expect(card(ID.busy)?.backgroundColor).toBe(BLUE);
+  expect(card(ID.busy)?.backgroundColor).toBe(YELLOW);
   expect(card(ID.needsUser)?.backgroundColor).toBe(RED);
   expect(card(ID.waiting)?.backgroundColor).toBe(RED);
   expect(card(ID.idleWarm)?.backgroundColor).toBe(GREEN);
@@ -196,7 +218,7 @@ test("a card links to its last PR", async ({ page }) => {
   expect(card(ID.busy)?.link).toBeNull();
 });
 
-test("right-clicking a card adds our section above Excalidraw's menu", async ({ page, context }) => {
+test("right-clicking a card adds our section beside Excalidraw's menu", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await open(page);
   await expect.poll(() => board.savedCards().length).toBe(5);
@@ -208,11 +230,7 @@ test("right-clicking a card adds our section above Excalidraw's menu", async ({ 
   await expect(theirs).toBeVisible();
   await expect(ours).toBeVisible();
   await expect(ours.getByRole("menuitem")).toHaveText(["Copy resume command", "Copy resume command with cd", "Open PR #12"]);
-  const a = (await ours.boundingBox())!;
-  const b = (await theirs.boundingBox())!;
-  expect(Math.abs(a.y + a.height - b.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(a.x - b.x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+  await expectBeside(page);
   await page.screenshot({ path: "test-results/board-card-menu.png" });
 
   await ours.getByRole("menuitem", { name: "Copy resume command", exact: true }).click();
@@ -229,6 +247,68 @@ test("right-clicking empty canvas shows only Excalidraw's menu", async ({ page }
   await page.mouse.click(700, 450, { button: "right" });
   await expect(page.locator(".excalidraw .context-menu")).toBeVisible();
   await expect(page.locator(".excaliagent-menu")).toHaveCount(0);
+});
+
+test("on a 1920×1080 screen our menu sits beside Excalidraw's tall menu, fully visible", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  for (const id of [ID.needsUser, ID.busy]) {
+    const point = await cardPoint(page, id);
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    await expect(page.locator(".excaliagent-menu")).toBeVisible();
+    await expectBeside(page);
+    if (id === ID.needsUser) await page.screenshot({ path: "test-results/board-card-menu-1080p.png" });
+    await page.keyboard.press("Escape");
+    await page.mouse.click(5, 540);
+    await expect(page.locator(".excaliagent-menu")).toHaveCount(0);
+  }
+});
+
+test("a fresh board starts with the inbox and the starter lanes", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  await expect.poll(() => lanes().length).toBe(8);
+  expect(laneTitles()).toEqual(LANE_TITLES);
+  const inbox = board.savedElements().find((e) => e.customData?.excaliagent?.kind === "inbox")!;
+  expect(inbox.width).toBe(660);
+  expect(lanes()[0]).toMatchObject({ x: inbox.x + inbox.width + 40, y: inbox.y, height: inbox.height });
+  await page.evaluate(() => (window as any).__excaliagent.excalidraw.scrollToContent(undefined, { fitToContent: true, animate: false }));
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: "test-results/board-lanes.png" });
+});
+
+test.describe("an existing board with an inbox and no lanes", () => {
+  const inbox = {
+    id: "old-inbox", type: "rectangle", x: 100, y: 50, width: 980, height: 824, angle: 0,
+    strokeColor: "#868e96", backgroundColor: "transparent", fillStyle: "solid", strokeWidth: 1,
+    strokeStyle: "dashed", roughness: 0, opacity: 100, groupIds: [], frameId: null, roundness: { type: 3 },
+    seed: 1, version: 1, versionNonce: 1, isDeleted: false, boundElements: null, updated: 1, link: null,
+    locked: false, index: "a0", customData: { excaliagent: { kind: "inbox" } },
+  };
+  test.beforeEach(async () => {
+    board.stop();
+    board = await startBoard(seedDemo, { scene: { elements: [inbox] } });
+  });
+
+  test("keeps its inbox and gets lanes from the main menu", async ({ page }) => {
+    await open(page);
+    await expect.poll(() => board.savedCards().length).toBe(5);
+    expect(lanes()).toHaveLength(0);
+    await page.getByTestId("main-menu-trigger").click();
+    await page.getByText("Add starter lanes").click();
+    await expect.poll(() => lanes().length).toBe(8);
+    expect(laneTitles()).toEqual(LANE_TITLES);
+    expect(lanes()[0]).toMatchObject({ x: 100 + 980 + 40, y: 50, height: 824 });
+    const inboxes = board.savedElements().filter((e) => e.customData?.excaliagent?.kind === "inbox");
+    expect(inboxes).toHaveLength(1);
+    expect(inboxes[0]).toMatchObject({ width: 980, height: 824 });
+    // A normal, undoable edit.
+    await page.locator(".excalidraw").focus();
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => lanes().length).toBe(0);
+  });
 });
 
 test("the API refuses requests without the token cookie", async ({ request }) => {

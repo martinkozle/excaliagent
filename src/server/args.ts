@@ -24,6 +24,7 @@ Options:
   --claude-dir <dir>  Claude Code home (default: ~/.claude)
   --no-herdr          Do not link sessions to herdr panes
   --no-raise          Focus the herdr pane but do not raise its terminal window
+                      (raising supports Hyprland, Sway and macOS)
   --dev               Serve the frontend through Vite with hot reload
   -h, --help          Show this help
   -v, --version       Show the version
