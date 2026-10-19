@@ -1,6 +1,6 @@
 # excaliagent — design
 
-Status: decided 2026-10-19 after a grilling session. Nothing built yet.
+Status: decided 2026-10-19 after a grilling session. MVP slices 0–5 implemented 2026-10-19 (see PLAN.md "Implementation notes").
 
 ## What it is
 

@@ -23,7 +23,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build:web && playwright test",
-    "demo": "node scripts/demo.ts"
+    "demo": "node scripts/demo.ts",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
@@ -37,5 +38,14 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
-  }
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "excalidraw",
+    "herdr",
+    "agents",
+    "sessions",
+    "board"
+  ]
 }

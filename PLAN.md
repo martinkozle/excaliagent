@@ -146,3 +146,32 @@ link still correct; stop herdr, card shows "no pane", nothing crashes.
   interfaces; nothing in `src/web` knows which harness it is.
 - Fail soft: a malformed file or a dead socket logs once and degrades; the board
   keeps working.
+
+## Implementation notes (2026-10-19)
+
+Slices 0–5 are built on branch `feat/mvp-slices`; slice 6 has a README but no
+publish yet. Where the code deviates from the text above, the code is right:
+
+- **herdr allows one request per connection** (0.9.0). A second line resets the
+  socket. The client keeps one long-lived subscription connection and opens a
+  short connection per request. Wire events are
+  `{"event":"pane_created","data":{"type":"pane_created",…}}` (underscores; the
+  subscription names use dots). `events_lost` is handled as a resync whether it
+  arrives as an error or an event.
+- **Cache tier** comes from the most recent assistant line that *wrote* cache:
+  a cache-read-only turn has both creation counters at 0 and would otherwise
+  downgrade a 1 h cache to 5 min. Expiry is the last assistant timestamp + TTL.
+- **Click to focus** is a double-click, caught in the capture phase so
+  Excalidraw does not enter text editing. On a dormant card it copies
+  `cd <cwd> && claude --resume <id>` and shows a toast.
+- **Dormant cards' labels** come from `POST /api/lookup {ids}`, which the
+  frontend calls for carded sessions that are not live.
+- **Fonts** (all of them, including the CJK Xiaolai set) are served by our
+  server via `EXCALIDRAW_ASSET_PATH`, so the board also works offline.
+- **App patches** use `CaptureUpdateAction.NEVER`, so undo only undoes your own
+  edits, never a status recolor.
+- **Tests never use real data.** `test/mock-claude.ts` seeds a throwaway Claude
+  home with dummy processes; herdr tests run an isolated `herdr server`
+  (temp HOME, own socket, `HERDR_*` scrubbed). `src/privacy.test.ts` guards it.
+- Verified only against mocks and an isolated herdr. A manual run against the
+  real `~/.claude` and herdr (`npm run dev`) is still to do.
