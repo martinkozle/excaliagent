@@ -1,0 +1,18 @@
+[
+  {
+    "request": "{\"id\":\"t-2\",\"method\":\"pane.process_info\",\"params\":{\"pane_id\":\"w1:p1\"}}",
+    "response": "{\"id\":\"t-2\",\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p1\",\"shell_pid\":4101,\"foreground_process_group_id\":4210,\"foreground_processes\":[{\"pid\":4210,\"name\":\".claude-wrapped\",\"argv\":[\"claude\"],\"cmdline\":\"claude\",\"cwd\":\"/home/alice/src/demo-app\"},{\"pid\":4250,\"name\":\"MainThread\",\"argv\":[\"node\",\"/opt/mcp/server.js\"],\"cmdline\":\"node /opt/mcp/server.js\",\"cwd\":\"/home/alice/src/demo-app\"}]}}}"
+  },
+  {
+    "request": "{\"id\":\"t-3\",\"method\":\"pane.process_info\",\"params\":{\"pane_id\":\"w1:p2\"}}",
+    "response": "{\"id\":\"t-3\",\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":4102,\"foreground_process_group_id\":4102,\"foreground_processes\":[{\"pid\":4102,\"name\":\"zsh\",\"argv\":[\"/bin/zsh\"],\"cmdline\":\"/bin/zsh\",\"cwd\":\"/home/alice/src/demo-app\"}]}}}"
+  },
+  {
+    "request": "{\"id\":\"t-4\",\"method\":\"pane.process_info\",\"params\":{\"pane_id\":\"w2:p1\"}}",
+    "response": "{\"id\":\"t-4\",\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w2:p1\",\"shell_pid\":5101,\"foreground_process_group_id\":5230,\"foreground_processes\":[{\"pid\":5230,\"name\":\"codex\",\"argv\":[\"codex\"],\"cmdline\":\"codex\",\"cwd\":\"/home/alice/src/api-server\"}]}}}"
+  },
+  {
+    "request": "{\"id\":\"t-5\",\"method\":\"pane.process_info\",\"params\":{\"pane_id\":\"w2:p3\"}}",
+    "response": "{\"id\":\"t-5\",\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w2:p3\",\"shell_pid\":5103,\"foreground_process_group_id\":5310,\"foreground_processes\":[{\"pid\":5310,\"name\":\".claude-wrapped\",\"argv\":[\"claude\",\"--resume\",\"0b6f3c1e-1111-4a2b-9c3d-123456789abc\"],\"cmdline\":\"claude --resume 0b6f3c1e-1111-4a2b-9c3d-123456789abc\",\"cwd\":\"/home/alice/src/api-server\"}]}}}"
+  }
+]

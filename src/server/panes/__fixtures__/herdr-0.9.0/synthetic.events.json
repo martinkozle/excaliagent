@@ -1,0 +1,9 @@
+{
+  "lines": [
+    "{\"id\":\"sub-1\",\"result\":{\"type\":\"subscription_started\"}}",
+    "{\"data\":{\"pane\":{\"pane_id\":\"w1:p4\",\"terminal_id\":\"term_w1_p4\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":false,\"cwd\":\"/home/alice/src/demo-app\",\"foreground_cwd\":\"/home/alice/src/demo-app\",\"terminal_title\":\"~/src/demo-app\",\"terminal_title_stripped\":\"~/src/demo-app\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":48},\"revision\":1},\"type\":\"pane_created\"},\"event\":\"pane_created\"}",
+    "{\"data\":{\"pane_id\":\"w1:p4\",\"agent\":\"claude\",\"type\":\"pane_agent_detected\"},\"event\":\"pane_agent_detected\"}",
+    "{\"data\":{\"pane_id\":\"w1:p4\",\"type\":\"pane_exited\",\"workspace_id\":\"w1\"},\"event\":\"pane_exited\"}",
+    "{\"data\":{\"pane_id\":\"w1:p4\",\"workspace_id\":\"w1\",\"type\":\"pane_closed\"},\"event\":\"pane_closed\"}"
+  ]
+}
