@@ -22,19 +22,20 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "npm run build:web && playwright test",
+    "demo": "node scripts/demo.ts"
   },
   "devDependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.5",
-    "@excalidraw/excalidraw": "^0.18.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "vitest": "^5.0.5"
   }
 }
