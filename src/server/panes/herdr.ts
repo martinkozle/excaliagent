@@ -6,7 +6,9 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { Desktop } from "../desktop/desktop.ts";
 import { createHerdrClient, type Connect } from "./herdr-client.ts";
+import { findHerdrClientPids } from "./herdr-clients.ts";
 import type { Pane, PaneLink } from "./types.ts";
 
 export { createNoPaneLink } from "./none.ts";
@@ -16,10 +18,24 @@ export const HERDR_SUBSCRIPTIONS = [
   { type: "pane.closed" },
   { type: "pane.exited" },
   { type: "pane.agent_detected" },
+  // Labels shown on cards: rebuild when they appear, change or go away.
+  { type: "workspace.created" },
+  { type: "workspace.renamed" },
+  { type: "workspace.closed" },
+  { type: "tab.created" },
+  { type: "tab.renamed" },
+  { type: "tab.closed" },
 ];
 
 /** Every method this link sends (tests check them against the schema). */
-export const HERDR_METHODS = ["events.subscribe", "pane.list", "pane.process_info", "pane.focus"] as const;
+export const HERDR_METHODS = [
+  "events.subscribe",
+  "pane.list",
+  "pane.process_info",
+  "pane.focus",
+  "workspace.list",
+  "tab.list",
+] as const;
 
 export function defaultHerdrSocketPath(): string {
   return process.env.HERDR_SOCKET_PATH || join(homedir(), ".config/herdr/herdr.sock");
@@ -33,11 +49,11 @@ export interface ProcessInfo {
 
 const workspaceOf = (paneId: string) => paneId.split(":")[0] ?? paneId;
 
-/** pid → pane for every foreground process of every pane. */
-export function parsePaneMap(infos: ProcessInfo[], workspaces = new Map<string, string>()): Map<number, Pane> {
+/** pid → pane for every foreground process of every pane; `panes` supplies ids and labels. */
+export function parsePaneMap(infos: ProcessInfo[], panes = new Map<string, Pane>()): Map<number, Pane> {
   const map = new Map<number, Pane>();
   for (const info of infos) {
-    const pane: Pane = { paneId: info.pane_id, workspaceId: workspaces.get(info.pane_id) ?? workspaceOf(info.pane_id) };
+    const pane: Pane = panes.get(info.pane_id) ?? { paneId: info.pane_id, workspaceId: workspaceOf(info.pane_id) };
     for (const p of info.foreground_processes ?? []) {
       if (typeof p.pid === "number") map.set(p.pid, pane);
     }
@@ -49,7 +65,15 @@ function sameMap(a: Map<number, Pane>, b: Map<number, Pane>): boolean {
   if (a.size !== b.size) return false;
   for (const [pid, pane] of a) {
     const other = b.get(pid);
-    if (!other || other.paneId !== pane.paneId || other.workspaceId !== pane.workspaceId) return false;
+    if (
+      !other ||
+      other.paneId !== pane.paneId ||
+      other.workspaceId !== pane.workspaceId ||
+      other.workspaceLabel !== pane.workspaceLabel ||
+      other.tabLabel !== pane.tabLabel
+    ) {
+      return false;
+    }
   }
   return true;
 }
@@ -61,10 +85,21 @@ export interface HerdrLinkOptions {
   retryMinMs?: number;
   retryMaxMs?: number;
   connect?: Connect;
+  /** When set, focus() also raises the terminal window hosting the herdr client. */
+  desktop?: Desktop;
+  procRoot?: string;
 }
 
-export function createHerdrLink(opts: HerdrLinkOptions = {}): PaneLink & { refresh(): Promise<void> } {
+export type HerdrLink = PaneLink & {
+  refresh(): Promise<void>;
+  /** pids of herdr client (TUI) processes attached to our server. */
+  clientPids(): Promise<number[]>;
+};
+
+export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
   const { resyncMs = 30_000 } = opts;
+  const socketPath = opts.socketPath ?? defaultHerdrSocketPath();
+  const clientPids = () => findHerdrClientPids({ socketPath, procRoot: opts.procRoot });
   let map = new Map<number, Pane>();
   const listeners = new Set<() => void>();
   let closed = false;
@@ -82,7 +117,7 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): PaneLink & { refre
   };
 
   const client = createHerdrClient({
-    socketPath: opts.socketPath ?? defaultHerdrSocketPath(),
+    socketPath,
     subscriptions: HERDR_SUBSCRIPTIONS,
     requestTimeoutMs: opts.requestTimeoutMs,
     retryMinMs: opts.retryMinMs,
@@ -94,17 +129,44 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): PaneLink & { refre
     onDisconnect: () => setMap(new Map()),
   });
 
-  async function build(): Promise<void> {
-    let panes: { pane_id: string; workspace_id?: string }[];
+  /** id → label from workspace.list / tab.list; empty when the call fails (labels are optional). */
+  async function labels(method: "workspace.list" | "tab.list", key: "workspaces" | "tabs", id: "workspace_id" | "tab_id") {
     try {
-      const res = (await client.request("pane.list", {})) as { panes?: typeof panes };
-      panes = res.panes ?? [];
+      const res = (await client.request(method, {})) as Record<string, { label?: unknown }[] | undefined>;
+      const out = new Map<string, string>();
+      for (const item of res[key] ?? []) {
+        const k = (item as Record<string, unknown>)[id];
+        if (typeof k === "string" && typeof item.label === "string") out.set(k, item.label);
+      }
+      return out;
+    } catch {
+      return new Map<string, string>();
+    }
+  }
+
+  async function build(): Promise<void> {
+    let list: { pane_id: string; workspace_id?: string; tab_id?: string }[];
+    const wsLabels = labels("workspace.list", "workspaces", "workspace_id");
+    const tabLabels = labels("tab.list", "tabs", "tab_id");
+    try {
+      const res = (await client.request("pane.list", {})) as { panes?: typeof list };
+      list = res.panes ?? [];
     } catch {
       return; // keep the current map; the next event/timer/reconnect retries
     }
-    const workspaces = new Map(panes.map((p) => [p.pane_id, p.workspace_id ?? workspaceOf(p.pane_id)]));
+    const [ws, tabs] = await Promise.all([wsLabels, tabLabels]);
+    const panes = new Map<string, Pane>();
+    for (const p of list) {
+      const pane: Pane = { paneId: p.pane_id, workspaceId: p.workspace_id ?? workspaceOf(p.pane_id) };
+      const wl = ws.get(pane.workspaceId);
+      const tl = p.tab_id !== undefined ? tabs.get(p.tab_id) : undefined;
+      if (wl !== undefined) pane.workspaceLabel = wl;
+      if (tl !== undefined) pane.tabLabel = tl;
+      panes.set(p.pane_id, pane);
+    }
+    const panesList = list;
     const infos = await Promise.all(
-      panes.map(async (p) => {
+      panesList.map(async (p) => {
         try {
           const res = (await client.request("pane.process_info", { pane_id: p.pane_id })) as { process_info?: ProcessInfo };
           return res.process_info;
@@ -114,7 +176,7 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): PaneLink & { refre
       }),
     );
     if (closed || !client.connected()) return;
-    setMap(parsePaneMap(infos.filter((i): i is ProcessInfo => !!i), workspaces));
+    setMap(parsePaneMap(infos.filter((i): i is ProcessInfo => !!i), panes));
   }
 
   // Coalesce: at most one build running, plus one queued behind it.
@@ -144,7 +206,15 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): PaneLink & { refre
     async focus(paneId) {
       if (closed || !client.connected()) return;
       await client.request("pane.focus", { pane_id: paneId });
+      if (opts.desktop) {
+        try {
+          await opts.desktop.raise(await clientPids());
+        } catch {
+          // raising the window is best effort
+        }
+      }
     },
+    clientPids,
     onChange(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);

@@ -1,15 +1,15 @@
 [
   {
     "request": "{\"id\":\"iso-1\",\"method\":\"workspace.create\",\"params\":{\"cwd\":\"/tmp\",\"focus\":false}}",
-    "response": "{\"id\":\"iso-1\",\"result\":{\"type\":\"workspace_created\",\"workspace\":{\"workspace_id\":\"w1\",\"number\":1,\"label\":\"tmp\",\"focused\":true,\"pane_count\":1,\"tab_count\":1,\"active_tab_id\":\"w1:t1\",\"agent_status\":\"unknown\"},\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"number\":1,\"label\":\"1\",\"focused\":true,\"pane_count\":1,\"agent_status\":\"unknown\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"terminal_id\":\"term_65e37a4b2e8771\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":true,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
+    "response": "{\"id\":\"iso-1\",\"result\":{\"type\":\"workspace_created\",\"workspace\":{\"workspace_id\":\"w1\",\"number\":1,\"label\":\"tmp\",\"focused\":true,\"pane_count\":1,\"tab_count\":1,\"active_tab_id\":\"w1:t1\",\"agent_status\":\"unknown\"},\"tab\":{\"tab_id\":\"w1:t1\",\"workspace_id\":\"w1\",\"number\":1,\"label\":\"1\",\"focused\":true,\"pane_count\":1,\"agent_status\":\"unknown\"},\"root_pane\":{\"pane_id\":\"w1:p1\",\"terminal_id\":\"term_65e384e029afc1\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":true,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
   },
   {
     "request": "{\"id\":\"iso-2\",\"method\":\"pane.split\",\"params\":{\"target_pane_id\":\"w1:p1\",\"direction\":\"right\",\"focus\":false}}",
-    "response": "{\"id\":\"iso-2\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":\"w1:p2\",\"terminal_id\":\"term_65e37a4b9181e2\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":false,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
+    "response": "{\"id\":\"iso-2\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":\"w1:p2\",\"terminal_id\":\"term_65e384e08cf4b2\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":false,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
   },
   {
     "request": "{\"id\":\"iso-3\",\"method\":\"pane.focus\",\"params\":{\"pane_id\":\"w1:p2\"}}",
-    "response": "{\"id\":\"iso-3\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":\"w1:p2\",\"terminal_id\":\"term_65e37a4b9181e2\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":true,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
+    "response": "{\"id\":\"iso-3\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":\"w1:p2\",\"terminal_id\":\"term_65e384e08cf4b2\",\"workspace_id\":\"w1\",\"tab_id\":\"w1:t1\",\"focused\":true,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
   },
   {
     "request": "{\"id\":\"iso-4\",\"method\":\"pane.send_text\",\"params\":{\"pane_id\":\"w1:p2\",\"text\":\"exit\\n\"}}",
@@ -20,11 +20,47 @@
     "response": "{\"id\":\"iso-5\",\"result\":{\"type\":\"ok\"}}"
   },
   {
-    "request": "{\"id\":\"iso-6\",\"method\":\"pane.process_info\",\"params\":{\"pane_id\":\"w99:p99\"}}",
-    "response": "{\"id\":\"iso-6\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"pane not found\"}}"
+    "request": "{\"id\":\"iso-6\",\"method\":\"workspace.create\",\"params\":{\"cwd\":\"/tmp\",\"label\":\"second\",\"focus\":false}}",
+    "response": "{\"id\":\"iso-6\",\"result\":{\"type\":\"workspace_created\",\"workspace\":{\"workspace_id\":\"w2\",\"number\":1,\"label\":\"second\",\"focused\":true,\"pane_count\":1,\"tab_count\":1,\"active_tab_id\":\"w2:t1\",\"agent_status\":\"unknown\"},\"tab\":{\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\",\"number\":1,\"label\":\"1\",\"focused\":true,\"pane_count\":1,\"agent_status\":\"unknown\"},\"root_pane\":{\"pane_id\":\"w2:p1\",\"terminal_id\":\"term_65e384e30cda83\",\"workspace_id\":\"w2\",\"tab_id\":\"w2:t1\",\"focused\":true,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
   },
   {
-    "request": "{\"id\":\"iso-7\",\"method\":\"pane.process_info\",\"params\":{\"nope\":1,\"pane_id\":5}}",
-    "response": "{\"id\":\"\",\"error\":{\"code\":\"invalid_request\",\"message\":\"invalid request: invalid type: integer `5`, expected a string at line 1 column 75\"}}"
+    "request": "{\"id\":\"iso-7\",\"method\":\"tab.create\",\"params\":{\"workspace_id\":\"w2\",\"cwd\":\"/tmp\",\"label\":\"scratch\",\"focus\":false}}",
+    "response": "{\"id\":\"iso-7\",\"result\":{\"type\":\"tab_created\",\"tab\":{\"tab_id\":\"w2:t2\",\"workspace_id\":\"w2\",\"number\":2,\"label\":\"scratch\",\"focused\":false,\"pane_count\":1,\"agent_status\":\"unknown\"},\"root_pane\":{\"pane_id\":\"w2:p2\",\"terminal_id\":\"term_65e384e3279334\",\"workspace_id\":\"w2\",\"tab_id\":\"w2:t2\",\"focused\":false,\"cwd\":\"/tmp\",\"foreground_cwd\":\"/tmp\",\"agent_status\":\"unknown\",\"scroll\":{\"offset_from_bottom\":0,\"max_offset_from_bottom\":0,\"viewport_rows\":40},\"revision\":0}}}"
+  },
+  {
+    "request": "{\"id\":\"iso-8\",\"method\":\"workspace.list\",\"params\":{}}",
+    "response": "{\"id\":\"iso-8\",\"result\":{\"type\":\"workspace_list\",\"workspaces\":[{\"workspace_id\":\"w2\",\"number\":1,\"label\":\"second\",\"focused\":true,\"pane_count\":2,\"tab_count\":2,\"active_tab_id\":\"w2:t1\",\"agent_status\":\"unknown\"}]}}"
+  },
+  {
+    "request": "{\"id\":\"iso-9\",\"method\":\"tab.list\",\"params\":{}}",
+    "response": "{\"id\":\"iso-9\",\"result\":{\"type\":\"tab_list\",\"tabs\":[{\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\",\"number\":1,\"label\":\"1\",\"focused\":true,\"pane_count\":1,\"agent_status\":\"unknown\"},{\"tab_id\":\"w2:t2\",\"workspace_id\":\"w2\",\"number\":2,\"label\":\"scratch\",\"focused\":false,\"pane_count\":1,\"agent_status\":\"unknown\"}]}}"
+  },
+  {
+    "request": "{\"id\":\"iso-10\",\"method\":\"tab.list\",\"params\":{\"workspace_id\":\"w2\"}}",
+    "response": "{\"id\":\"iso-10\",\"result\":{\"type\":\"tab_list\",\"tabs\":[{\"tab_id\":\"w2:t1\",\"workspace_id\":\"w2\",\"number\":1,\"label\":\"1\",\"focused\":true,\"pane_count\":1,\"agent_status\":\"unknown\"},{\"tab_id\":\"w2:t2\",\"workspace_id\":\"w2\",\"number\":2,\"label\":\"scratch\",\"focused\":false,\"pane_count\":1,\"agent_status\":\"unknown\"}]}}"
+  },
+  {
+    "request": "{\"id\":\"iso-11\",\"method\":\"tab.rename\",\"params\":{\"tab_id\":\"w2:t2\",\"label\":\"renamed tab\"}}",
+    "response": "{\"id\":\"iso-11\",\"result\":{\"type\":\"tab_info\",\"tab\":{\"tab_id\":\"w2:t2\",\"workspace_id\":\"w2\",\"number\":2,\"label\":\"renamed tab\",\"focused\":false,\"pane_count\":1,\"agent_status\":\"unknown\"}}}"
+  },
+  {
+    "request": "{\"id\":\"iso-12\",\"method\":\"workspace.rename\",\"params\":{\"workspace_id\":\"w2\",\"label\":\"renamed ws\"}}",
+    "response": "{\"id\":\"iso-12\",\"result\":{\"type\":\"workspace_info\",\"workspace\":{\"workspace_id\":\"w2\",\"number\":1,\"label\":\"renamed ws\",\"focused\":true,\"pane_count\":2,\"tab_count\":2,\"active_tab_id\":\"w2:t1\",\"agent_status\":\"unknown\"}}}"
+  },
+  {
+    "request": "{\"id\":\"iso-13\",\"method\":\"tab.close\",\"params\":{\"tab_id\":\"w2:t2\"}}",
+    "response": "{\"id\":\"iso-13\",\"result\":{\"type\":\"ok\"}}"
+  },
+  {
+    "request": "{\"id\":\"iso-14\",\"method\":\"workspace.close\",\"params\":{\"workspace_id\":\"w2\"}}",
+    "response": "{\"id\":\"iso-14\",\"result\":{\"type\":\"ok\"}}"
+  },
+  {
+    "request": "{\"id\":\"iso-15\",\"method\":\"pane.process_info\",\"params\":{\"pane_id\":\"w99:p99\"}}",
+    "response": "{\"id\":\"iso-15\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"pane not found\"}}"
+  },
+  {
+    "request": "{\"id\":\"iso-16\",\"method\":\"pane.process_info\",\"params\":{\"nope\":1,\"pane_id\":5}}",
+    "response": "{\"id\":\"\",\"error\":{\"code\":\"invalid_request\",\"message\":\"invalid request: invalid type: integer `5`, expected a string at line 1 column 76\"}}"
   }
 ]

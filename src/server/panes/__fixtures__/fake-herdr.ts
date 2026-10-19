@@ -31,6 +31,8 @@ function load<T>(name: string): T {
 export const recorded = {
   paneList: load<Exchange>("synthetic.pane.list.json"),
   processInfo: load<Exchange[]>("synthetic.pane.process_info.json"),
+  workspaceList: load<Exchange>("synthetic.workspace.list.json"),
+  tabList: load<Exchange>("synthetic.tab.list.json"),
   events: load<{ lines: string[] }>("synthetic.events.json"),
   isolatedEvents: load<{ lines: string[] }>("isolated.events.json"),
   isolatedExchanges: load<Exchange[]>("isolated.exchanges.json"),
@@ -38,7 +40,7 @@ export const recorded = {
     methods: string[];
     subscriptionTypes: string[];
     eventKinds: string[];
-    required: Record<"PaneInfo" | "PaneProcessInfo" | "PaneProcessInfoProcess", string[]>;
+    required: Record<"PaneInfo" | "PaneProcessInfo" | "PaneProcessInfoProcess" | "WorkspaceInfo" | "TabInfo", string[]>;
   }>("schema.json"),
 };
 
@@ -54,6 +56,8 @@ export type Handler = (req: FakeRequest) => unknown;
 /** Recorded result body for a method/params, or a pane_not_found error. */
 export function recordedResult(req: FakeRequest): unknown {
   if (req.method === "pane.list") return JSON.parse(recorded.paneList.response).result;
+  if (req.method === "workspace.list") return JSON.parse(recorded.workspaceList.response).result;
+  if (req.method === "tab.list") return JSON.parse(recorded.tabList.response).result;
   if (req.method === "pane.process_info") {
     for (const ex of recorded.processInfo) {
       const r = JSON.parse(ex.response);

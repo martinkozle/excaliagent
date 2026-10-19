@@ -32,6 +32,8 @@ writeFileSync(
         PaneInfo: defs.PaneInfo.required,
         PaneProcessInfo: defs.PaneProcessInfo.required,
         PaneProcessInfoProcess: defs.PaneProcessInfoProcess.required,
+        WorkspaceInfo: defs.WorkspaceInfo.required,
+        TabInfo: defs.TabInfo.required,
       },
     },
     null,
@@ -72,7 +74,18 @@ function call(method: string, params: object): Promise<any> {
 
 const subLines: string[] = [];
 const sub = conn((l) => subLines.push(l));
-const subscriptions = ["pane.created", "pane.closed", "pane.exited", "pane.agent_detected"].map((type) => ({ type }));
+const subscriptions = [
+  "pane.created",
+  "pane.closed",
+  "pane.exited",
+  "pane.agent_detected",
+  "workspace.created",
+  "workspace.renamed",
+  "workspace.closed",
+  "tab.created",
+  "tab.renamed",
+  "tab.closed",
+].map((type) => ({ type }));
 sub.write(JSON.stringify({ id: "iso-sub", method: "events.subscribe", params: { subscriptions } }) + "\n");
 await sleep(300);
 
@@ -87,11 +100,23 @@ try {
   await sleep(1500);
   await call("pane.close", { pane_id: "w1:p1" });
   await sleep(500);
+  const ws = await call("workspace.create", { cwd: "/tmp", label: "second", focus: false });
+  const wsId: string = ws.result.workspace.workspace_id;
+  const tab = await call("tab.create", { workspace_id: wsId, cwd: "/tmp", label: "scratch", focus: false });
+  await call("workspace.list", {});
+  await call("tab.list", {});
+  await call("tab.list", { workspace_id: wsId });
+  await call("tab.rename", { tab_id: tab.result.tab.tab_id, label: "renamed tab" });
+  await call("workspace.rename", { workspace_id: wsId, label: "renamed ws" });
+  await call("tab.close", { tab_id: tab.result.tab.tab_id });
+  await call("workspace.close", { workspace_id: wsId });
+  await sleep(500);
   await call("pane.process_info", { pane_id: "w99:p99" }); // error: pane_not_found
   await call("pane.process_info", { nope: 1, pane_id: 5 }); // malformed: error with id ""
 } finally {
   sub.destroy();
   await herdr.stop();
+  console.log(exchanges.at(-1)?.request, "=>", exchanges.at(-1)?.response.slice(0, 300));
 }
 
 writeFileSync(join(outDir, "isolated.events.json"), JSON.stringify({ lines: subLines }, null, 2) + "\n");

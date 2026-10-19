@@ -178,6 +178,25 @@
     "PaneProcessInfoProcess": [
       "pid",
       "name"
+    ],
+    "WorkspaceInfo": [
+      "workspace_id",
+      "number",
+      "label",
+      "focused",
+      "pane_count",
+      "tab_count",
+      "active_tab_id",
+      "agent_status"
+    ],
+    "TabInfo": [
+      "tab_id",
+      "workspace_id",
+      "number",
+      "label",
+      "focused",
+      "pane_count",
+      "agent_status"
     ]
   }
 }

@@ -14,6 +14,9 @@ export type SessionStatus =
 export interface Pane {
   paneId: string;
   workspaceId: string;
+  /** Human names from the multiplexer, e.g. herdr workspace and tab labels. */
+  workspaceLabel?: string;
+  tabLabel?: string;
 }
 
 export interface Session {

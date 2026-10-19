@@ -35,11 +35,14 @@ async function moveCard(page: Page, sessionId: string, x: number, y: number) {
     ({ sessionId, x, y }) => {
       const { excalidraw } = (window as any).__excaliagent;
       const els = excalidraw.getSceneElementsIncludingDeleted();
-      const rect = els.find((e: any) => e.customData?.excaliagent?.sessionId === sessionId && !e.isDeleted);
+      const rect = els.find(
+        (e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId && !e.isDeleted,
+      );
+      const inCard = (e: any) => e.id === rect.id || e.groupIds.includes(rect.groupIds[0]);
       const dx = x - rect.x;
       const dy = y - rect.y;
       const moved = els.map((e: any) =>
-        e.id === rect.id || e.containerId === rect.id
+        inCard(e)
           ? { ...e, x: e.x + dx, y: e.y + dy, version: e.version + 1, versionNonce: e.versionNonce + 1 }
           : e,
       );
@@ -62,7 +65,7 @@ test("live sessions spawn as colored cards in the inbox; dormant ones do not", a
   expect(card(ID.needsUser)?.label).toContain("demo-app · fix/flaky");
   expect(card(ID.needsUser)?.label).toContain("input needed");
   expect(card(ID.needsUser)?.label).toContain("PR #12");
-  expect(card(ID.busy)?.label).toContain("no pane");
+  expect(card(ID.busy)?.label).toContain("not in herdr");
   await page.screenshot({ path: "test-results/board-spawned.png" });
 });
 
@@ -103,10 +106,13 @@ test("a deleted card of a live session respawns", async ({ page }) => {
   await page.evaluate((sessionId) => {
     const { excalidraw } = (window as any).__excaliagent;
     const els = excalidraw.getSceneElementsIncludingDeleted();
-    const rect = els.find((e: any) => e.customData?.excaliagent?.sessionId === sessionId && !e.isDeleted);
+    const rect = els.find(
+        (e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId && !e.isDeleted,
+      );
+      const inCard = (e: any) => e.id === rect.id || e.groupIds.includes(rect.groupIds[0]);
     excalidraw.updateScene({
       elements: els.map((e: any) =>
-        e.id === rect.id || e.containerId === rect.id ? { ...e, isDeleted: true, version: e.version + 1 } : e,
+        inCard(e) ? { ...e, isDeleted: true, version: e.version + 1 } : e,
       ),
       captureUpdate: "IMMEDIATELY",
     });
@@ -163,7 +169,7 @@ test("double-clicking a dormant card offers the resume command", async ({ page, 
     const { excalidraw } = (window as any).__excaliagent;
     const rect = excalidraw
       .getSceneElements()
-      .find((e: any) => e.customData?.excaliagent?.sessionId === sessionId);
+      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
     // Center it, so Excalidraw's selection panel (top-left) does not cover it.
     excalidraw.scrollToContent(rect, { animate: false });
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));

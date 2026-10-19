@@ -82,10 +82,14 @@ describe("createHerdrClient subscription", () => {
       method: "events.subscribe",
       params: { subscriptions: [{ type: "pane.created" }] },
     });
-    for (const line of recorded.isolatedEvents.lines.slice(1)) fake.emit(line);
-    await waitFor(() => events.length === 4, 2000, "events");
-    expect(events.map((e) => e.event)).toEqual(["pane_created", "pane_created", "pane_exited", "pane_closed"]);
-    expect(events[3]!.data).toMatchObject({ pane_id: "w1:p1", type: "pane_closed" });
+    const lines = recorded.isolatedEvents.lines.slice(1);
+    for (const line of lines) fake.emit(line);
+    await waitFor(() => events.length === lines.length, 2000, "events");
+    expect(events.map((e) => e.event)).toEqual(lines.map((l) => JSON.parse(l).event));
+    expect(events.map((e) => e.event)).toEqual(
+      expect.arrayContaining(["pane_created", "pane_exited", "pane_closed", "tab_renamed", "workspace_renamed"]),
+    );
+    expect(events.find((e) => e.event === "tab_renamed")!.data).toMatchObject({ tab_id: "w2:t2", label: "renamed tab" });
   });
 
   it("reports events_lost (error form and event form)", async () => {

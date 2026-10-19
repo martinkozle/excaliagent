@@ -158,9 +158,25 @@ publish yet. Where the code deviates from the text above, the code is right:
   `{"event":"pane_created","data":{"type":"pane_created",…}}` (underscores; the
   subscription names use dots). `events_lost` is handled as a resync whether it
   arrives as an error or an event.
-- **Cache tier** comes from the most recent assistant line that *wrote* cache:
-  a cache-read-only turn has both creation counters at 0 and would otherwise
-  downgrade a 1 h cache to 5 min. Expiry is the last assistant timestamp + TTL.
+- **Cache tier** comes from the transcript's `api-request` lines
+  (`cacheControl[].value.ttl`, latest `repl_main_thread` request). Claude Code
+  2.1.303 reports every cache write in `usage` as `ephemeral_5m` even when the
+  request asked for 1 h, so usage counters are only a fallback for older
+  transcripts. Expiry is the last assistant timestamp + TTL.
+- **Branch and repo** are read live from `<repo>/.git/HEAD` (worktrees too):
+  the transcript's `gitBranch` is stamped once and goes stale (it said `HEAD`
+  for a whole session). Dormant cards keep the branch they were on unless it
+  was `HEAD`.
+- **Cards** are a rect + title text (Excalifont 20, wraps to 2 lines) + details
+  text (Nunito 14), in one app group. Text is measured with a canvas in the
+  browser; a text box that drifted from its measured size by >1 px is re-fit
+  (fonts that load late). Old single-label cards are migrated in place.
+- **Pane label** shows herdr's workspace and tab names (`herdr: ws › tab`),
+  kept fresh by `workspace.*` / `tab.*` rename events.
+- **Window raise**: after `pane.focus`, the terminal window hosting the herdr
+  client is raised (Hyprland `hyprctl dispatch focuswindow`, Sway `swaymsg`),
+  found by walking /proc from the herdr client to a window pid. Clients known to
+  be on another herdr server are never raised. `--no-raise` disables it.
 - **Click to focus** is a double-click, caught in the capture phase so
   Excalidraw does not enter text editing. On a dormant card it copies
   `cd <cwd> && claude --resume <id>` and shows a toast.
@@ -173,5 +189,5 @@ publish yet. Where the code deviates from the text above, the code is right:
 - **Tests never use real data.** `test/mock-claude.ts` seeds a throwaway Claude
   home with dummy processes; herdr tests run an isolated `herdr server`
   (temp HOME, own socket, `HERDR_*` scrubbed). `src/privacy.test.ts` guards it.
-- Verified only against mocks and an isolated herdr. A manual run against the
-  real `~/.claude` and herdr (`npm run dev`) is still to do.
+- First manual run against real data on 2026-10-19 drove the second round of
+  fixes above.

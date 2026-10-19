@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { CARD_H, CARD_W, formatAge, labelText, makeCard, makeInbox, statusStyle } from "./cards.ts";
+import {
+  CARD_H,
+  CARD_W,
+  DETAIL_LINES,
+  PAD,
+  TITLE_GAP,
+  TITLE_SIZE,
+  detailsText,
+  formatAge,
+  makeCard,
+  makeInbox,
+  statusStyle,
+  titleText,
+  estimateMeasure,
+  INNER_W,
+  type Measure,
+  DETAIL_SIZE,
+  DETAIL_LH,
+  TITLE_LH,
+} from "./cards.ts";
 import { DAY, HOUR, MIN, NOW, session, testGen } from "./__fixtures__/helpers.ts";
 
 describe("statusStyle", () => {
@@ -34,76 +53,133 @@ describe("formatAge", () => {
   ])("%d ms → %s", (ms, out) => expect(formatAge(ms)).toBe(out));
 });
 
-describe("labelText", () => {
-  it("renders the full five-line label", () => {
-    const s = session({
-      status: "waiting",
-      waitingFor: "input needed",
-      prLinks: ["https://github.com/a/b/pull/3", "https://github.com/me/excaliagent/pull/12"],
-    });
-    expect(labelText(s, NOW)).toBe(
-      ["ExcaliClaude handoff", "excaliagent · main", "waiting: input needed · 2m", "cache warm 41m · herdr w7:p1", "PR #12"].join("\n"),
+/** Monospace test measurer: 10px per char regardless of font → 27 chars per 272px line. */
+const mono: Measure = (t) => t.length * 10;
+
+describe("titleText", () => {
+  it("title, then name, then repo", () => {
+    expect(titleText(session())).toBe("ExcaliClaude handoff");
+    expect(titleText(session({ title: undefined }))).toBe("excaliagent-64");
+    expect(titleText(session({ title: "", name: undefined }))).toBe("excaliagent");
+  });
+
+  it("fits on one line when short enough", () => {
+    expect(titleText(session({ title: "Fix flaky checkout test" }), mono)).toBe("Fix flaky checkout test");
+  });
+
+  it("word-wraps to a second line", () => {
+    expect(titleText(session({ title: "Node.js first slices setup on NixOS" }), mono)).toBe(
+      "Node.js first slices setup\non NixOS",
     );
   });
 
+  it("truncates only the second line with … when still too long", () => {
+    const t = titleText(session({ title: "one two three four five six seven eight nine ten eleven twelve thirteen" }), mono);
+    const [l1, l2, l3] = t.split("\n");
+    expect(l3).toBeUndefined();
+    expect(l1).toBe("one two three four five six");
+    expect(l2!.endsWith("…")).toBe(true);
+    expect(mono(l2!, 5, 20)).toBeLessThanOrEqual(INNER_W);
+    expect(l2!.startsWith("seven eight")).toBe(true);
+  });
+
+  it("breaks a long single word by characters", () => {
+    expect(titleText(session({ title: "x".repeat(40) }), mono)).toBe(`${"x".repeat(27)}\n${"x".repeat(13)}`);
+    expect(titleText(session({ title: `ab ${"y".repeat(30)}` }), mono)).toBe(`ab\n${"y".repeat(26)}…`);
+  });
+
+  it("collapses whitespace and newlines", () => {
+    expect(titleText(session({ title: "a\n  b" }))).toBe("a b");
+  });
+
+  it("the default measurer is used when none is given and keeps lines within the width", () => {
+    const t = titleText(session({ title: "A very long title ".repeat(10) }));
+    expect(t.split("\n")).toHaveLength(2);
+    for (const l of t.split("\n")) expect(estimateMeasure(l, 5, TITLE_SIZE)).toBeLessThanOrEqual(INNER_W);
+  });
+});
+
+describe("measurer injection", () => {
+  it("makeCard measures title and details with their font and size, and sizes boxes from it", () => {
+    const calls: Array<[number, number]> = [];
+    const m: Measure = (t, f, z) => (calls.push([f, z]), t.length * 5);
+    const [, title, details] = makeCard(session(), { x: 0, y: 0 }, testGen(), NOW, m);
+    expect(calls).toContainEqual([5, 20]);
+    expect(calls).toContainEqual([6, 14]);
+    expect(title.width).toBe("ExcaliClaude handoff".length * 5);
+    expect(details.width).toBe(Math.max(...details.text.split("\n").map((l) => l.length * 5)));
+  });
+
+  it("details are truncated by measured width", () => {
+    const wide: Measure = (t) => t.length * 20; // 13 chars per line
+    const lines = detailsText(session(), NOW, wide).split("\n");
+    for (const l of lines) expect(wide(l, 6, 14)).toBeLessThanOrEqual(INNER_W);
+    expect(lines[0]).toBe("excaliagent…");
+  });
+});
+
+describe("detailsText", () => {
+  const lines = (over: Parameters<typeof session>[0]) => detailsText(session(over), NOW).split("\n");
+
+  it("renders all five lines", () => {
+    const s = session({
+      status: "waiting",
+      waitingFor: "input needed",
+      pane: { paneId: "w7:p1", workspaceId: "w7", workspaceLabel: "excaliagent", tabLabel: "claude" },
+      prLinks: ["https://github.com/a/b/pull/3", "https://github.com/me/excaliagent/pull/12"],
+    });
+    expect(detailsText(s, NOW).split("\n")).toEqual([
+      "excaliagent · main",
+      "waiting: input needed · 2m",
+      "cache warm 41m",
+      "herdr: excaliagent › claude",
+      "PR #12",
+    ]);
+  });
+
   it("status without waitingFor, underscores as spaces", () => {
-    expect(labelText(session({ status: "needs_user" }), NOW).split("\n")[2]).toBe("needs user · 2m");
+    expect(lines({ status: "needs_user" })[1]).toBe("needs user · 2m");
   });
 
-  it("live without pane says no pane", () => {
-    expect(labelText(session({ pane: undefined }), NOW).split("\n")[3]).toBe("cache warm 41m · no pane");
+  it("herdr label fallbacks", () => {
+    expect(lines({ pane: { paneId: "w7:p1", workspaceId: "w7", tabLabel: "claude" } })[3]).toBe("herdr: claude");
+    expect(lines({ pane: { paneId: "w7:p1", workspaceId: "w7", workspaceLabel: "ws" } })[3]).toBe("herdr: ws");
+    expect(lines({ pane: { paneId: "w7:p1", workspaceId: "w7" } })[3]).toBe("herdr: w7:p1");
   });
 
-  it("cache cold", () => {
-    expect(labelText(session({ cacheExpiresAt: NOW - MIN }), NOW).split("\n")[3]).toBe("cache cold · herdr w7:p1");
+  it("live without pane says not in herdr", () => {
+    expect(lines({ pane: undefined })[3]).toBe("not in herdr");
   });
 
-  it("unknown cache omits the cache part", () => {
-    expect(labelText(session({ cacheExpiresAt: 0 }), NOW).split("\n")[3]).toBe("herdr w7:p1");
+  it("cache cold, and omitted when unknown", () => {
+    expect(lines({ cacheExpiresAt: NOW - MIN })[2]).toBe("cache cold");
+    expect(lines({ cacheExpiresAt: 0 })).toEqual(["excaliagent · main", "busy · 2m", "herdr: w7:p1"]);
   });
 
-  it("unknown cache and no pane info for a dormant session drops the line", () => {
-    const s = session({ live: false, status: "dormant", cacheExpiresAt: 0, pane: undefined, lastActivityAt: NOW - 3 * DAY });
-    expect(labelText(s, NOW)).toBe(["ExcaliClaude handoff", "excaliagent · main", "dormant · 3d"].join("\n"));
-  });
-
-  it("dormant shows cache but never pane", () => {
-    const s = session({ live: false, status: "dormant", cacheExpiresAt: NOW - DAY, lastActivityAt: NOW - 3 * DAY });
-    expect(labelText(s, NOW).split("\n").slice(2)).toEqual(["dormant · 3d", "cache cold"]);
-  });
-
-  it("title falls back to name, then repo", () => {
-    expect(labelText(session({ title: undefined }), NOW).split("\n")[0]).toBe("excaliagent-64");
-    expect(labelText(session({ title: "", name: undefined }), NOW).split("\n")[0]).toBe("excaliagent");
+  it("dormant: no herdr line, cache still shown", () => {
+    expect(lines({ live: false, status: "dormant", cacheExpiresAt: NOW - DAY, lastActivityAt: NOW - 3 * DAY })).toEqual([
+      "excaliagent · main",
+      "dormant · 3d",
+      "cache cold",
+    ]);
   });
 
   it("no branch shows only the repo", () => {
-    expect(labelText(session({ branch: undefined }), NOW).split("\n")[1]).toBe("excaliagent");
+    expect(lines({ branch: undefined })[0]).toBe("excaliagent");
   });
 
-  it("non-github PR links are shown without scheme", () => {
-    const s = session({ prLinks: ["https://gitlab.example.com/x/-/mr/4"] });
-    expect(labelText(s, NOW).split("\n")[4]).toBe("gitlab.example.com/x/-/mr/4");
-  });
-
-  it("long non-github PR links are truncated", () => {
-    const s = session({ prLinks: ["https://gitlab.example.com/group/project/-/merge_requests/4"] });
-    const line = labelText(s, NOW).split("\n")[4]!;
-    expect(line.startsWith("gitlab.example.com/group/")).toBe(true);
-    expect(line.endsWith("…")).toBe(true);
-  });
-
-  it("truncates very long lines so they do not wrap", () => {
-    const line0 = labelText(session({ title: "x".repeat(200) }), NOW).split("\n")[0]!;
-    expect(line0.length).toBeLessThanOrEqual(40);
-    expect(line0.endsWith("…")).toBe(true);
+  it("non-github PR links lose the scheme and are truncated", () => {
+    expect(lines({ prLinks: ["https://gitlab.example.com/x/-/mr/4"] })[4]).toBe("gitlab.example.com/x/-/mr/4");
+    const long = lines({ prLinks: ["https://gitlab.example.com/group/project/-/merge_requests/4"] })[4]!;
+    expect(long.endsWith("…")).toBe(true);
+    expect(estimateMeasure(long, 6, DETAIL_SIZE)).toBeLessThanOrEqual(INNER_W);
   });
 });
 
 describe("makeCard", () => {
-  it("builds a rectangle and its bound label", () => {
+  it("builds rect + title + details sharing one fresh group", () => {
     const s = session({ prLinks: ["https://github.com/a/b/pull/1"] });
-    const [rect, text] = makeCard(s, { x: 60, y: 100 }, testGen(), NOW);
+    const [rect, title, details] = makeCard(s, { x: 60, y: 100 }, testGen(), NOW);
     expect(rect).toMatchObject({
       type: "rectangle",
       x: 60,
@@ -112,38 +188,49 @@ describe("makeCard", () => {
       height: CARD_H,
       backgroundColor: "#a5d8ff",
       strokeColor: "#1971c2",
-      strokeStyle: "solid",
       fillStyle: "solid",
       roundness: { type: 3 },
-      isDeleted: false,
       index: null,
-      updated: NOW,
+      boundElements: null,
       customData: { excaliagent: { kind: "card", source: "claude", sessionId: "s1" } },
-      boundElements: [{ type: "text", id: text.id }],
     });
-    expect(text).toMatchObject({
+    expect(rect.groupIds).toHaveLength(1);
+    expect(title.groupIds).toEqual(rect.groupIds);
+    expect(details.groupIds).toEqual(rect.groupIds);
+    expect(title).toMatchObject({
       type: "text",
-      containerId: rect.id,
-      text: labelText(s, NOW),
-      originalText: labelText(s, NOW),
-      fontSize: 14,
-      x: 65,
-      y: 105,
-      textAlign: "left",
-      verticalAlign: "top",
+      containerId: null,
+      text: titleText(s),
+      originalText: titleText(s),
+      fontSize: 20,
+      fontFamily: 5,
+      strokeColor: "#1e1e1e",
+      x: 60 + PAD,
+      y: 100 + PAD,
+      autoResize: true,
+      customData: { excaliagent: { kind: "card-title", sessionId: "s1", cardId: rect.id } },
     });
-    expect(text.height).toBeCloseTo(5 * 14 * text.lineHeight);
-    expect(rect.id).not.toBe(text.id);
+    expect(details).toMatchObject({
+      type: "text",
+      containerId: null,
+      text: detailsText(s, NOW),
+      fontSize: 14,
+      fontFamily: 6,
+      strokeColor: "#495057",
+      x: 60 + PAD,
+      y: title.y + title.height + TITLE_GAP,
+      customData: { excaliagent: { kind: "card-details", sessionId: "s1", cardId: rect.id } },
+    });
+    expect(details.height).toBeCloseTo(5 * 14 * 1.35);
+    expect(rect.y + PAD + 2 * TITLE_SIZE * TITLE_LH + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD).toBeLessThanOrEqual(rect.y + rect.height);
   });
 });
 
 describe("makeInbox", () => {
-  it("creates an inbox rectangle and a title text", () => {
+  it("creates an inbox rectangle and a title text above it", () => {
     const els = makeInbox(testGen(), NOW);
     const rect = els.find((e) => e.type === "rectangle")!;
     expect(rect.customData).toEqual({ excaliagent: { kind: "inbox" } });
-    expect(rect.width).toBe(920);
-    expect(rect.height).toBe(560);
     const label = els.find((e) => e.type === "text");
     expect(label).toMatchObject({ text: "inbox", containerId: null });
     expect(label!.y + label!.height).toBeLessThanOrEqual(rect.y);

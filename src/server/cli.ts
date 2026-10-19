@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseCliArgs, USAGE, type CliArgs } from "./args.ts";
 import { createHub } from "./hub.ts";
 import { createAppServer, type Middleware } from "./http.ts";
+import { createDesktop } from "./desktop/desktop.ts";
 import { createHerdrLink, createNoPaneLink } from "./panes/herdr.ts";
 import { createSceneStore, defaultStateDir } from "./scene-store.ts";
 import { createClaudeSource } from "./sources/claude.ts";
@@ -29,7 +30,9 @@ function openBrowser(url: string) {
 async function main(args: CliArgs) {
   const token = randomBytes(24).toString("base64url");
   const source = createClaudeSource({ claudeDir: args.claudeDir });
-  const panes = args.herdr ? createHerdrLink() : createNoPaneLink();
+  const panes = args.herdr
+    ? createHerdrLink({ desktop: args.raise ? createDesktop({ env: process.env }) : undefined })
+    : createNoPaneLink();
   const hub = createHub({ source, panes });
   await hub.start();
   const scenes = createSceneStore(args.stateDir ?? defaultStateDir());

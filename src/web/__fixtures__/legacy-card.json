@@ -1,0 +1,38 @@
+[
+  {
+    "id": "inbox-1", "type": "rectangle", "x": 40, "y": 80, "width": 920, "height": 560,
+    "angle": 0, "strokeColor": "#868e96", "backgroundColor": "transparent", "fillStyle": "solid",
+    "strokeWidth": 1, "strokeStyle": "dashed", "roughness": 0, "opacity": 100, "groupIds": [],
+    "frameId": null, "roundness": { "type": 3 }, "seed": 1, "version": 1, "versionNonce": 1,
+    "isDeleted": false, "boundElements": null, "updated": 1, "link": null, "locked": false, "index": "a0",
+    "customData": { "excaliagent": { "kind": "inbox" } }
+  },
+  {
+    "id": "card-s1", "type": "rectangle", "x": 1500, "y": 900, "width": 400, "height": 120,
+    "angle": 0, "strokeColor": "#1971c2", "backgroundColor": "#a5d8ff", "fillStyle": "solid",
+    "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "groupIds": ["user-grp"],
+    "frameId": null, "roundness": { "type": 3 }, "seed": 2, "version": 9, "versionNonce": 2,
+    "isDeleted": false, "boundElements": [{ "type": "text", "id": "label-s1" }, { "type": "arrow", "id": "user-arrow-2" }],
+    "updated": 1, "link": null, "locked": false, "index": "a1",
+    "customData": { "excaliagent": { "kind": "card", "source": "claude", "sessionId": "s1" } }
+  },
+  {
+    "id": "label-s1", "type": "text", "x": 1505, "y": 905, "width": 390, "height": 94.5,
+    "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent", "fillStyle": "solid",
+    "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "groupIds": ["user-grp"],
+    "frameId": null, "roundness": null, "seed": 3, "version": 5, "versionNonce": 3,
+    "isDeleted": false, "boundElements": null, "updated": 1, "link": null, "locked": false, "index": "a2",
+    "text": "Old title\nexcaliagent · main\nbusy · 2m\ncache warm 41m · herdr w7:p1",
+    "originalText": "Old title\nexcaliagent · main\nbusy · 2m\ncache warm 41m · herdr w7:p1",
+    "fontSize": 14, "fontFamily": 6,
+    "textAlign": "left", "verticalAlign": "top", "containerId": "card-s1", "autoResize": true,
+    "lineHeight": 1.35
+  },
+  {
+    "id": "user-note", "type": "rectangle", "x": 1950, "y": 900, "width": 100, "height": 100,
+    "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent", "fillStyle": "solid",
+    "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "groupIds": ["user-grp"],
+    "frameId": null, "roundness": null, "seed": 4, "version": 2, "versionNonce": 4,
+    "isDeleted": false, "boundElements": null, "updated": 1, "link": null, "locked": false, "index": "a3"
+  }
+]

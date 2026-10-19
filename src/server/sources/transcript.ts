@@ -33,8 +33,12 @@ interface Acc {
   gitBranch?: string;
   lastTimestamp: number;
   lastAssistantAt: number;
-  /** TTL of the most recent assistant line that actually wrote cache. */
+  /** TTL of the most recent assistant line that actually wrote cache (usage-based, legacy). */
   tierMs?: number;
+  /** TTL requested by the most recent main-thread api-request with cacheControl. */
+  apiMainTierMs?: number;
+  /** Same, from any other query source (subagents, compaction, ...). */
+  apiOtherTierMs?: number;
 }
 
 interface FileState {
@@ -50,7 +54,7 @@ interface FileState {
 const CHUNK = 1 << 20;
 const NL = 0x0a;
 // Cheap prefilter; the parsed top-level `type` is still checked.
-const INTERESTING = /"type":"(?:ai-title|agent-name|pr-link|continued-in|user|assistant)"/;
+const INTERESTING = /"type":"(?:ai-title|agent-name|pr-link|continued-in|user|assistant|api-request)"/;
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
 const tsOf = (v: unknown): number => {
@@ -79,6 +83,19 @@ export function applyLine(acc: Acc, o: Record<string, unknown>): void {
     case "continued-in":
       acc.continuedIn = str(o.continuedInSessionId) ?? acc.continuedIn;
       return;
+    case "api-request": {
+      // Only cacheControl is read; params/tail are never kept.
+      const cc = o.cacheControl;
+      if (!Array.isArray(cc)) return;
+      let tier = TTL_5M;
+      for (const entry of cc) {
+        const ttl = (entry as { value?: { ttl?: unknown } } | null)?.value?.ttl;
+        if (ttl === "1h") tier = TTL_1H;
+      }
+      if (o.querySource === "repl_main_thread") acc.apiMainTierMs = tier;
+      else acc.apiOtherTierMs = tier;
+      return;
+    }
     case "user":
     case "assistant": {
       acc.cwd = str(o.cwd) ?? acc.cwd;
@@ -100,7 +117,10 @@ export function applyLine(acc: Acc, o: Record<string, unknown>): void {
 }
 
 function snapshot(acc: Acc): TranscriptInfo {
-  const ttl = acc.lastAssistantAt ? (acc.tierMs ?? TTL_5M) : 0;
+  // Recent Claude Code reports every cache write as 5m in usage even for 1h
+  // requests, so the api-request cacheControl is the source of truth when present.
+  const tier = acc.apiMainTierMs ?? acc.apiOtherTierMs ?? acc.tierMs ?? TTL_5M;
+  const ttl = acc.lastAssistantAt ? tier : 0;
   const out: TranscriptInfo = {
     prLinks: [...acc.prLinks],
     lastTimestamp: acc.lastTimestamp,

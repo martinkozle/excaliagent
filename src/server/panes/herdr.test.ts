@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createHerdrLink, HERDR_METHODS, HERDR_SUBSCRIPTIONS, parsePaneMap } from "./herdr.ts";
 import { createNoPaneLink } from "./none.ts";
-import type { PaneLink } from "./types.ts";
 import { parseLine } from "./herdr-client.ts";
 import {
   recorded,
@@ -11,6 +10,22 @@ import {
   type FakeRequest,
 } from "./__fixtures__/fake-herdr.ts";
 import { sleep, tempSocketDir, waitFor } from "./__fixtures__/test-util.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Fake /proc with one herdr client (pid 700) of socketPath and the server (701). */
+function fakeProcWithClient(dir: string, socketPath: string): string {
+  const root = join(dir, "proc");
+  const add = (pid: number, argv: string[], env: string) => {
+    mkdirSync(join(root, String(pid)), { recursive: true });
+    writeFileSync(join(root, String(pid), "comm"), "herdr\n");
+    writeFileSync(join(root, String(pid), "cmdline"), argv.join("\0") + "\0");
+    writeFileSync(join(root, String(pid), "environ"), env + "\0");
+  };
+  add(700, ["herdr"], `HERDR_SOCKET_PATH=${socketPath}`);
+  add(701, ["herdr", "server"], `HERDR_SOCKET_PATH=${socketPath}`);
+  return root;
+}
 
 let cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -18,15 +33,15 @@ afterEach(async () => {
   cleanups = [];
 });
 
-async function setup(): Promise<{ socketPath: string; fake: FakeHerdr }> {
+async function setup(): Promise<{ socketPath: string; fake: FakeHerdr; dir: string }> {
   const t = tempSocketDir();
   cleanups.push(t.cleanup);
   const fake = await startFakeHerdr(t.socketPath);
   cleanups.push(() => fake.close());
-  return { socketPath: t.socketPath, fake };
+  return { socketPath: t.socketPath, fake, dir: t.dir };
 }
 
-function link(opts: Parameters<typeof createHerdrLink>[0]): PaneLink {
+function link(opts: Parameters<typeof createHerdrLink>[0]): ReturnType<typeof createHerdrLink> {
   const l = createHerdrLink({ retryMinMs: 10, retryMaxMs: 40, requestTimeoutMs: 200, ...opts });
   cleanups.push(() => l.close());
   return l;
@@ -59,6 +74,21 @@ describe("fixtures follow the herdr 0.9.0 schema", () => {
     for (const s of HERDR_SUBSCRIPTIONS) expect(recorded.schema.subscriptionTypes).toContain(s.type);
   });
 
+  it("subscribes to pane, tab and workspace lifecycle + rename events", () => {
+    expect(HERDR_SUBSCRIPTIONS.map((s) => s.type)).toEqual([
+      "pane.created",
+      "pane.closed",
+      "pane.exited",
+      "pane.agent_detected",
+      "workspace.created",
+      "workspace.renamed",
+      "workspace.closed",
+      "tab.created",
+      "tab.renamed",
+      "tab.closed",
+    ]);
+  });
+
   it("synthetic responses carry every required field", () => {
     const { required } = recorded.schema;
     for (const p of JSON.parse(recorded.paneList.response).result.panes) {
@@ -70,6 +100,12 @@ describe("fixtures follow the herdr 0.9.0 schema", () => {
       for (const proc of info.foreground_processes) {
         for (const k of required.PaneProcessInfoProcess) expect(proc).toHaveProperty(k);
       }
+    }
+    for (const w of JSON.parse(recorded.workspaceList.response).result.workspaces) {
+      for (const k of required.WorkspaceInfo) expect(w).toHaveProperty(k);
+    }
+    for (const t of JSON.parse(recorded.tabList.response).result.tabs) {
+      for (const k of required.TabInfo) expect(t).toHaveProperty(k);
     }
   });
 
@@ -100,10 +136,60 @@ describe("createHerdrLink", () => {
     const l = link({ socketPath });
     await waitFor(() => l.match(4210) !== undefined, 2000, "map");
     expect(l.available()).toBe(true);
-    expect(l.match(4210)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
-    expect(l.match(5230)).toEqual({ paneId: "w2:p1", workspaceId: "w2" });
-    expect(l.match(5310)).toEqual({ paneId: "w2:p3", workspaceId: "w2" });
+    expect(l.match(4210)).toMatchObject({ paneId: "w1:p1", workspaceId: "w1" });
+    expect(l.match(5230)).toMatchObject({ paneId: "w2:p1", workspaceId: "w2" });
+    expect(l.match(5310)).toMatchObject({ paneId: "w2:p3", workspaceId: "w2" });
     expect(l.match(99999)).toBeUndefined();
+  });
+
+  it("attaches workspace and tab labels", async () => {
+    const { socketPath } = await setup();
+    const l = link({ socketPath });
+    await waitFor(() => l.match(4210) !== undefined, 2000, "map");
+    expect(l.match(4210)).toEqual({ paneId: "w1:p1", workspaceId: "w1", workspaceLabel: "demo-app", tabLabel: "editor" });
+    expect(l.match(5230)).toEqual({ paneId: "w2:p1", workspaceId: "w2", workspaceLabel: "api-server", tabLabel: "1" });
+    expect(l.match(5310)).toEqual({ paneId: "w2:p3", workspaceId: "w2", workspaceLabel: "api-server", tabLabel: "review" });
+  });
+
+  it("a tab rename event updates the label and fires onChange", async () => {
+    const { socketPath, fake } = await setup();
+    const l = link({ socketPath });
+    await waitFor(() => l.match(5310) !== undefined);
+    let changes = 0;
+    l.onChange(() => changes++);
+    fake.handler = (req) => {
+      const res = recordedResult(req) as { tabs?: { tab_id: string; label: string }[] };
+      if (req.method !== "tab.list") return res;
+      return { ...res, tabs: res.tabs!.map((t) => (t.tab_id === "w2:t2" ? { ...t, label: "code review" } : t)) };
+    };
+    fake.emit(recorded.events.lines.find((x) => x.includes("tab_renamed"))!);
+    await waitFor(() => l.match(5310)?.tabLabel === "code review", 2000, "renamed tab");
+    expect(changes).toBe(1);
+  });
+
+  it("a workspace rename event updates the label", async () => {
+    const { socketPath, fake } = await setup();
+    const l = link({ socketPath });
+    await waitFor(() => l.match(5310) !== undefined);
+    fake.handler = (req) => {
+      const res = recordedResult(req) as { workspaces?: { workspace_id: string; label: string }[] };
+      if (req.method !== "workspace.list") return res;
+      return { ...res, workspaces: res.workspaces!.map((w) => (w.workspace_id === "w2" ? { ...w, label: "api" } : w)) };
+    };
+    fake.emit(recorded.events.lines.find((x) => x.includes("workspace_renamed"))!);
+    await waitFor(() => l.match(5310)?.workspaceLabel === "api", 2000, "renamed workspace");
+    expect(l.match(5230)?.workspaceLabel).toBe("api");
+  });
+
+  it("maps panes without labels when workspace.list / tab.list fail", async () => {
+    const { socketPath, fake } = await setup();
+    fake.handler = (req) =>
+      req.method === "workspace.list" || req.method === "tab.list"
+        ? { error: { code: "internal", message: "boom" } }
+        : recordedResult(req);
+    const l = link({ socketPath });
+    await waitFor(() => l.match(4210) !== undefined);
+    expect(l.match(4210)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
   });
 
   it("subscribes before taking the snapshot", async () => {
@@ -114,7 +200,7 @@ describe("createHerdrLink", () => {
       method: "events.subscribe",
       params: { subscriptions: HERDR_SUBSCRIPTIONS },
     });
-    expect(fake.requests[1]!.method).toBe("pane.list");
+    expect(fake.requests.slice(1, 4).map((r) => r.method).sort()).toEqual(["pane.list", "tab.list", "workspace.list"]);
   });
 
   it("focus() sends pane.focus with the pane id", async () => {
@@ -136,6 +222,52 @@ describe("createHerdrLink", () => {
     await expect(l.focus("w9:p9")).rejects.toMatchObject({ code: "pane_not_found" });
   });
 
+  it("clientPids() finds herdr clients of our socket", async () => {
+    const { socketPath, dir } = await setup();
+    const l = link({ socketPath, procRoot: fakeProcWithClient(dir, socketPath) });
+    expect(await l.clientPids()).toEqual([700]);
+  });
+
+  it("focus() raises the terminal window of the herdr client after pane.focus", async () => {
+    const { socketPath, fake, dir } = await setup();
+    const raised: number[][] = [];
+    const l = link({
+      socketPath,
+      procRoot: fakeProcWithClient(dir, socketPath),
+      desktop: {
+        raise: async (pids) => {
+          expect(fake.requests.some((r) => r.method === "pane.focus")).toBe(true);
+          raised.push(pids);
+          return true;
+        },
+      },
+    });
+    await waitFor(() => l.available());
+    await l.focus("w1:p1");
+    expect(raised).toEqual([[700]]);
+  });
+
+  it("focus() does not raise when pane.focus fails, and a failing raise is harmless", async () => {
+    const { socketPath, fake, dir } = await setup();
+    let raises = 0;
+    const l = link({
+      socketPath,
+      procRoot: fakeProcWithClient(dir, socketPath),
+      desktop: {
+        raise: async () => {
+          raises++;
+          throw new Error("compositor exploded");
+        },
+      },
+    });
+    await waitFor(() => l.available());
+    await expect(l.focus("w1:p1")).resolves.toBeUndefined();
+    expect(raises).toBe(1);
+    fake.handler = () => ({ error: { code: "pane_not_found", message: "pane not found" } });
+    await expect(l.focus("w9:p9")).rejects.toMatchObject({ code: "pane_not_found" });
+    expect(raises).toBe(1);
+  });
+
   it("rebuilds on a pane event and fires onChange when the map changed", async () => {
     const { socketPath, fake } = await setup();
     const l = link({ socketPath });
@@ -145,7 +277,7 @@ describe("createHerdrLink", () => {
     fake.handler = withExtraPane;
     fake.emit(recorded.events.lines[1]!); // pane_created w1:p4
     await waitFor(() => l.match(4400) !== undefined, 2000, "new pane mapped");
-    expect(l.match(4400)).toEqual({ paneId: "w1:p4", workspaceId: "w1" });
+    expect(l.match(4400)).toMatchObject({ paneId: "w1:p4", workspaceId: "w1" });
     expect(changes).toBe(1);
   });
 
@@ -198,7 +330,7 @@ describe("createHerdrLink", () => {
     await waitFor(() => l.match(4210) !== undefined);
     fake.handler = withExtraPane;
     await l.refresh!();
-    expect(l.match(4400)).toEqual({ paneId: "w1:p4", workspaceId: "w1" });
+    expect(l.match(4400)).toMatchObject({ paneId: "w1:p4", workspaceId: "w1" });
   });
 
   it("is unavailable without throwing when the socket is absent, and picks it up later", async () => {
@@ -239,10 +371,10 @@ describe("createHerdrLink", () => {
     const l = link({ socketPath });
     await waitFor(() => l.match(4210) !== undefined);
     expect(l.match(5230)).toBeUndefined();
-    expect(l.match(5310)).toEqual({ paneId: "w2:p3", workspaceId: "w2" });
+    expect(l.match(5310)).toMatchObject({ paneId: "w2:p3", workspaceId: "w2" });
     fake.handler = () => ({ error: { code: "internal", message: "boom" } });
     await expect(l.refresh!()).resolves.toBeUndefined();
-    expect(l.match(4210)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
+    expect(l.match(4210)).toMatchObject({ paneId: "w1:p1", workspaceId: "w1" });
   });
 
   it("a hanging process_info times out and the rest of the map still builds", async () => {

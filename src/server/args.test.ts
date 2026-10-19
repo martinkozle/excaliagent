@@ -4,13 +4,16 @@ import { parseCliArgs } from "./args.ts";
 describe("parseCliArgs", () => {
   it("has sane defaults", () => {
     expect(parseCliArgs([])).toEqual({
-      port: 0, open: true, dev: false, herdr: true, stateDir: undefined, claudeDir: undefined, help: false, version: false,
+      port: 0, open: true, dev: false, herdr: true, raise: true, stateDir: undefined, claudeDir: undefined, help: false, version: false,
     });
   });
   it("parses every flag", () => {
     expect(
       parseCliArgs(["--port", "4123", "--no-open", "--dev", "--no-herdr", "--state-dir", "/s", "--claude-dir", "/c"]),
     ).toMatchObject({ port: 4123, open: false, dev: true, herdr: false, stateDir: "/s", claudeDir: "/c" });
+  });
+  it("--no-raise keeps herdr focus but does not raise the terminal window", () => {
+    expect(parseCliArgs(["--no-raise"])).toMatchObject({ herdr: true, raise: false });
   });
   it("rejects a bad port", () => {
     expect(() => parseCliArgs(["--port", "abc"])).toThrow(/port/);

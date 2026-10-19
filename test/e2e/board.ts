@@ -48,6 +48,7 @@ async function startServer(
     [
       join(root, "src/server/cli.ts"),
       "--no-open",
+      "--no-raise", // never raise windows on the developer's desktop
       ...(opts.herdrSocket ? [] : ["--no-herdr"]),
       "--claude-dir",
       claudeDir,
@@ -105,7 +106,15 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
           backgroundColor: r.backgroundColor,
           strokeColor: r.strokeColor,
           strokeStyle: r.strokeStyle,
-          label: els.find((t) => t.containerId === r.id)?.originalText ?? "",
+          // Title + details texts (free texts in the card's group, customData.cardId = rect id).
+          label: ["card-title", "card-details"]
+            .map(
+              (kind) =>
+                els.find((t) => t.customData?.excaliagent?.kind === kind && t.customData.excaliagent.cardId === r.id)
+                  ?.originalText ?? "",
+            )
+            .filter(Boolean)
+            .join("\n"),
         }));
     },
     stop() {

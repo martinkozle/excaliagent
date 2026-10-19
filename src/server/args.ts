@@ -5,6 +5,8 @@ export interface CliArgs {
   open: boolean;
   dev: boolean;
   herdr: boolean;
+  /** Also raise the terminal window when focusing a herdr pane (Hyprland/Sway). */
+  raise: boolean;
   stateDir: string | undefined;
   claudeDir: string | undefined;
   help: boolean;
@@ -21,6 +23,7 @@ Options:
   --state-dir <dir>   Where scene.json lives (default: $XDG_STATE_HOME/excaliagent)
   --claude-dir <dir>  Claude Code home (default: ~/.claude)
   --no-herdr          Do not link sessions to herdr panes
+  --no-raise          Focus the herdr pane but do not raise its terminal window
   --dev               Serve the frontend through Vite with hot reload
   -h, --help          Show this help
   -v, --version       Show the version
@@ -36,6 +39,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       open: { type: "boolean", default: true },
       dev: { type: "boolean", default: false },
       herdr: { type: "boolean", default: true },
+      raise: { type: "boolean", default: true },
       "state-dir": { type: "string" },
       "claude-dir": { type: "string" },
       help: { type: "boolean", short: "h", default: false },
@@ -52,6 +56,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     open: values.open,
     dev: values.dev,
     herdr: values.herdr,
+    raise: values.raise,
     stateDir: values["state-dir"],
     claudeDir: values["claude-dir"],
     help: values.help,

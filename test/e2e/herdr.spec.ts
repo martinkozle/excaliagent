@@ -54,11 +54,13 @@ test.afterEach(async () => {
   await herdr?.stop();
 });
 
-test("a card shows its herdr pane and double-click focuses it", async ({ page }) => {
+test("a card shows its herdr workspace and tab, and double-click focuses the pane", async ({ page }) => {
   herdr = await startIsolatedHerdr();
-  const ws = (await herdrRequest(herdr.socketPath, "workspace.create", { cwd: herdr.dir, focus: true })) as {
+  const ws = (await herdrRequest(herdr.socketPath, "workspace.create", { cwd: herdr.dir, focus: true, label: "demo-app" })) as {
     root_pane: { pane_id: string };
+    tab: { tab_id: string };
   };
+  await herdrRequest(herdr.socketPath, "tab.rename", { tab_id: ws.tab.tab_id, label: "oauth" });
   const paneA = ws.root_pane.pane_id;
   const pid = await dummyIn(paneA, "a");
   // A second pane takes focus, so focusing A is observable.
@@ -75,7 +77,7 @@ test("a card shows its herdr pane and double-click focuses it", async ({ page })
   await page.goto(board.url);
   await expect
     .poll(() => board.savedCards().find((c) => c.sessionId === SESSION)?.label, { timeout: 15_000 })
-    .toContain(`herdr ${paneA}`);
+    .toContain("herdr: demo-app › oauth");
 
   // Make sure focus starts elsewhere; skip the assertion if herdr has no notion of focus without a client.
   const before = await focusedPane();
@@ -83,7 +85,7 @@ test("a card shows its herdr pane and double-click focuses it", async ({ page })
 
   const point = await page.evaluate(async (sessionId) => {
     const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.sessionId === sessionId);
+    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
     // Center it, so Excalidraw's selection panel (top-left) does not cover it.
     excalidraw.scrollToContent(rect, { animate: false });
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));

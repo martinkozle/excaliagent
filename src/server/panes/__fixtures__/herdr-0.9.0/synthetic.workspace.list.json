@@ -1,0 +1,4 @@
+{
+  "request": "{\"id\":\"t-20\",\"method\":\"workspace.list\",\"params\":{}}",
+  "response": "{\"id\":\"t-20\",\"result\":{\"type\":\"workspace_list\",\"workspaces\":[{\"workspace_id\":\"w1\",\"number\":1,\"label\":\"demo-app\",\"focused\":true,\"pane_count\":2,\"tab_count\":1,\"active_tab_id\":\"w1:t1\",\"agent_status\":\"unknown\"},{\"workspace_id\":\"w2\",\"number\":2,\"label\":\"api-server\",\"focused\":false,\"pane_count\":2,\"tab_count\":2,\"active_tab_id\":\"w2:t1\",\"agent_status\":\"unknown\"}]}}"
+}

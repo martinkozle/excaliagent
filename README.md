@@ -8,10 +8,11 @@ app keeps each card's **color and label** in sync with the session and never
 moves, resizes, or edits anything else.
 
 ```
-Fix flaky checkout test           ← title
+Fix flaky checkout test           ← title (handwritten, larger)
 demo-app · fix/flaky              ← repo · branch
 needs user: input needed · 2m     ← status · what it waits for · last activity
-cache warm 41m · herdr w7:p1      ← prompt-cache warmth · herdr pane
+cache warm 41m                    ← prompt-cache warmth
+herdr: demo-app › oauth           ← herdr workspace › tab
 PR #12                            ← last PR link
 ```
 
@@ -33,12 +34,13 @@ It starts a server on `127.0.0.1` and opens the board in your browser.
 
 - **Live sessions** appear in the *inbox* rectangle by themselves.
 - **Dormant sessions** are added from the **Sessions** panel (top right).
-- **Double-click a card** to focus its [herdr](https://herdr.dev) pane. For a
+- **Double-click a card** to focus its [herdr](https://herdr.dev) pane and raise
+  the terminal window (Hyprland and Sway). For a
   dormant session it copies `cd <dir> && claude --resume <id>` instead.
 - The board is saved to `$XDG_STATE_HOME/excaliagent/scene.json`
   (default `~/.local/state/excaliagent/`).
 
-Options: `--port`, `--no-open`, `--state-dir`, `--claude-dir`, `--no-herdr`.
+Options: `--port`, `--no-open`, `--state-dir`, `--claude-dir`, `--no-herdr`, `--no-raise`.
 See `npx excaliagent --help`.
 
 ## Privacy and security

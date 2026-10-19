@@ -1,14 +1,40 @@
 // The single writer (DESIGN.md "Single writer"): sessions + scene → new scene.
 //
-// Pure. Never touches elements the app did not create, and on app-owned cards
-// only colours (rect) and text/originalText/height (bound label). Position, size,
-// angle, groups and frames stay as the user left them.
-//
-// A card whose session is absent from `sessions` is restyled dormant, but its
-// label is left alone: we have no data to regenerate it from.
+// Pure. Never touches elements the app did not create. On app-owned cards:
+// - rect: only colours change. Exception, migration of an old bound-label card:
+//   a fresh app group id is prepended to its groupIds, the bound text entry is
+//   removed from boundElements, and its height grows (never shrinks) to CARD_H.
+// - title/details texts: only text/originalText and their width/height (content
+//   length) change, plus customData.cardId when re-pointed after a copy-paste.
+//   They move with the card's group; the one exception: when the title's wrapped
+//   line count changes, the details text is re-placed below it, relative to the
+//   rect's current x/y (it is an app-owned element inside the card's group).
+// A card whose session is absent from `sessions` is restyled dormant; its texts
+// are left alone (nothing to regenerate them from).
 import type { ExcalidrawElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
 import type { Session } from "../shared/types.ts";
-import { cardMeta, isInbox, labelText, makeCard, makeInbox, statusStyle, textHeight, type Gen } from "./cards.ts";
+import {
+  CARD_H,
+  cardMeta,
+  cardPartMeta,
+  detailsText,
+  estimateMeasure,
+  lineCount,
+  partOffset,
+  wrapTitle,
+  type Measure,
+  isInbox,
+  makeCard,
+  makeCardPart,
+  makeInbox,
+  partBox,
+  TITLE_SIZE,
+  DETAIL_SIZE,
+  statusStyle,
+  titleText,
+  type CardPartKind,
+  type Gen,
+} from "./cards.ts";
 import { nextSlot } from "./inbox.ts";
 
 export interface ReconcileResult {
@@ -17,28 +43,31 @@ export interface ReconcileResult {
   changed: boolean;
   /** Session ids that got a new card. */
   spawned: string[];
-  /** Session ids whose existing card(s) were patched. */
+  /** Session ids whose existing card(s) were patched, repaired or migrated. */
   patched: string[];
-  /** Element ids created or modified (cards, labels, inbox). */
+  /** Element ids created or modified. */
   touchedIds: string[];
 }
+
+const PARTS: CardPartKind[] = ["card-title", "card-details"];
 
 export function reconcile(
   sessions: readonly Session[],
   elements: readonly ExcalidrawElement[],
   now: number,
   gen: Gen,
-  opts: { add?: readonly Session[] } = {},
+  opts: { add?: readonly Session[]; measure?: Measure } = {},
 ): ReconcileResult {
+  const measure = opts.measure ?? estimateMeasure;
   const byId = new Map<string, Session>();
   for (const s of opts.add ?? []) byId.set(s.id, s);
   for (const s of sessions) byId.set(s.id, s);
 
-  const elById = new Map(elements.map((e) => [e.id, e]));
   const out: ExcalidrawElement[] = elements.slice();
+  const indexOf = new Map(elements.map((e, i) => [e.id, i]));
   const touched: string[] = [];
   const patched = new Set<string>();
-  const carded = new Set<string>();
+  const inserts = new Map<number, ExcalidrawElement[]>();
 
   const bump = <T extends ExcalidrawElement>(e: T, changes: Partial<T>): T => ({
     ...e,
@@ -47,55 +76,148 @@ export function reconcile(
     versionNonce: gen.seed(),
     updated: now,
   });
+  const put = (e: ExcalidrawElement) => {
+    out[indexOf.get(e.id)!] = e;
+    touched.push(e.id);
+  };
 
-  elements.forEach((el, i) => {
-    if (el.isDeleted) return;
-    const meta = cardMeta(el);
-    if (!meta) return;
-    carded.add(meta.sessionId);
+  // --- index cards and their parts -------------------------------------------
+  const rects = elements.filter((e) => !e.isDeleted && cardMeta(e));
+  const rectById = new Map(rects.map((r) => [r.id, r]));
+  const parts = elements.filter((e): e is ExcalidrawTextElement => !e.isDeleted && !!cardPartMeta(e));
+  const assigned = new Map<string, ExcalidrawTextElement>(); // `${rectId}|${kind}`
+  const owner = new Map<string, string>(); // text id → rect id
+  const assign = (t: ExcalidrawTextElement, r: ExcalidrawElement) => {
+    const key = `${r.id}|${cardPartMeta(t)!.kind}`;
+    if (assigned.has(key) || owner.has(t.id)) return false;
+    assigned.set(key, t);
+    owner.set(t.id, r.id);
+    return true;
+  };
+  // 1) by innermost group (survives copy-paste, which re-ids elements and groups)
+  for (const t of parts) {
+    const g = t.groupIds[0];
+    const m = cardPartMeta(t)!;
+    if (!g) continue;
+    const r = rects.find((r) => r.groupIds[0] === g && cardMeta(r)!.sessionId === m.sessionId && !assigned.has(`${r.id}|${m.kind}`));
+    if (r) assign(t, r);
+  }
+  // 2) by cardId
+  for (const t of parts) {
+    if (owner.has(t.id)) continue;
+    const m = cardPartMeta(t)!;
+    const r = rectById.get(m.cardId);
+    if (r && cardMeta(r)!.sessionId === m.sessionId) assign(t, r);
+  }
+  // 3) orphans (rect deleted, or duplicates) → soft-delete
+  for (const t of parts) if (!owner.has(t.id)) put(bump(t, { isDeleted: true }));
+
+  // --- patch / repair / migrate each card -------------------------------------
+  for (const rect0 of rects) {
+    const meta = cardMeta(rect0)!;
     const s = byId.get(meta.sessionId);
+    const rectChanges: Partial<ExcalidrawElement> = {};
+    let cardTouched = false;
 
     const style = statusStyle(s, now);
-    if (
-      el.backgroundColor !== style.backgroundColor ||
-      el.strokeColor !== style.strokeColor ||
-      el.strokeStyle !== style.strokeStyle ||
-      el.fillStyle !== style.fillStyle
-    ) {
-      out[i] = bump(el, style);
-      touched.push(el.id);
-      patched.add(meta.sessionId);
+    for (const k of ["backgroundColor", "strokeColor", "strokeStyle", "fillStyle"] as const)
+      if (rect0[k] !== style[k]) Object.assign(rectChanges, { [k]: style[k] });
+
+    // Old card: bound text label → migrate.
+    const legacyId = rect0.boundElements?.find((b) => b.type === "text")?.id;
+    const legacyIdx = legacyId !== undefined ? indexOf.get(legacyId) : undefined;
+    const legacy = legacyIdx !== undefined ? elements[legacyIdx] : undefined;
+    let legacyLines: string[] | undefined;
+    if (legacy && legacy.type === "text" && !legacy.isDeleted && legacy.containerId === rect0.id) {
+      legacyLines = legacy.originalText.split("\n");
+      put(bump(legacy, { isDeleted: true }));
+      const rest = rect0.boundElements!.filter((b) => b.id !== legacy.id);
+      Object.assign(rectChanges, {
+        groupIds: [gen.id(), ...rect0.groupIds],
+        boundElements: rest.length ? rest : null,
+        ...(rect0.height < CARD_H ? { height: CARD_H } : {}),
+      });
     }
 
-    if (!s) return;
-    const textId = el.boundElements?.find((b) => b.type === "text")?.id;
-    const text = textId ? elById.get(textId) : undefined;
-    if (!text || text.type !== "text" || text.isDeleted || text.containerId !== el.id) return;
-    const label = labelText(s, now);
-    // Compare originalText: Excalidraw may have re-wrapped `text`.
-    if (text.originalText === label) return;
-    out[elements.indexOf(text)] = bump<ExcalidrawTextElement>(text, {
-      text: label,
-      originalText: label,
-      height: textHeight(label, text.fontSize, text.lineHeight),
-    });
-    touched.push(text.id);
-    patched.add(meta.sessionId);
-  });
+    let rect = rect0;
+    if (Object.keys(rectChanges).length) {
+      rect = bump(rect0, rectChanges);
+      put(rect);
+      cardTouched = true;
+    }
 
+    let titleLines = 1;
+    let titleLinesChanged = false;
+    for (const kind of PARTS) {
+      const t = assigned.get(`${rect.id}|${kind}`);
+      const want = s ? (kind === "card-title" ? titleText(s, measure) : detailsText(s, now, measure)) : undefined;
+      if (t) {
+        const changes: { -readonly [K in keyof ExcalidrawTextElement]?: ExcalidrawTextElement[K] } = {};
+        if (want !== undefined && t.originalText !== want) {
+          Object.assign(changes, { text: want, originalText: want, ...partBox(kind, want, measure) });
+        } else if (t.fontSize === (kind === "card-title" ? TITLE_SIZE : DETAIL_SIZE)) {
+          // Same text, but measured differently (e.g. the real font loaded after the
+          // first measure): re-fit the box so Excalidraw does not clip the text.
+          const box = partBox(kind, t.originalText, measure);
+          if (Math.abs(box.width - t.width) > 1 || Math.abs(box.height - t.height) > 1) Object.assign(changes, box);
+        }
+        if (kind === "card-title") {
+          titleLines = lineCount(want ?? t.originalText);
+          titleLinesChanged = titleLines !== lineCount(t.originalText);
+        } else if (titleLinesChanged) {
+          // Keep details just below the (re-wrapped) title, relative to the rect's current position.
+          const { dx, dy } = partOffset(kind, titleLines);
+          Object.assign(changes, { x: rect.x + dx, y: rect.y + dy });
+        }
+        const m = cardPartMeta(t)!;
+        if (m.cardId !== rect.id) changes.customData = { ...t.customData, excaliagent: { ...m, cardId: rect.id } };
+        if (Object.keys(changes).length) {
+          put(bump(t, changes));
+          cardTouched = true;
+        }
+        continue;
+      }
+      // Missing part: recreate from the session, or from the old label when migrating.
+      const legacyText = legacyLines
+        ? kind === "card-title"
+          ? wrapTitle(legacyLines[0] ?? "", measure)
+          : legacyLines.slice(1).join("\n")
+        : undefined;
+      const text = want ?? legacyText;
+      if (!text) continue;
+      if (kind === "card-title") titleLines = lineCount(text);
+      const made = makeCardPart(kind, rect, meta.sessionId, text, gen, now, measure, titleLines);
+      const at = indexOf.get(rect.id)!;
+      inserts.set(at, [...(inserts.get(at) ?? []), made]);
+      touched.push(made.id);
+      cardTouched = true;
+    }
+    if (cardTouched) patched.add(meta.sessionId);
+  }
+
+  let result: ExcalidrawElement[] = out;
+  if (inserts.size) {
+    result = [];
+    out.forEach((e, i) => {
+      result.push(e);
+      result.push(...(inserts.get(i) ?? []));
+    });
+  }
+
+  // --- spawn ------------------------------------------------------------------
+  const carded = new Set(rects.map((r) => cardMeta(r)!.sessionId));
   const spawned: string[] = [];
-  const toSpawn = [...sessions.filter((s) => s.live), ...(opts.add ?? [])];
-  let inbox = out.find(isInbox);
-  for (const s of toSpawn) {
+  let inbox = result.find(isInbox);
+  for (const s of [...sessions.filter((s) => s.live), ...(opts.add ?? [])]) {
     if (carded.has(s.id)) continue;
     if (!inbox) {
       const made = makeInbox(gen, now);
-      out.push(...made);
+      result.push(...made);
       touched.push(...made.map((e) => e.id));
       inbox = made[0];
     }
-    const card = makeCard(byId.get(s.id) ?? s, nextSlot(inbox, out), gen, now);
-    out.push(...card);
+    const card = makeCard(byId.get(s.id) ?? s, nextSlot(inbox, result), gen, now, measure);
+    result.push(...card);
     touched.push(...card.map((e) => e.id));
     carded.add(s.id);
     spawned.push(s.id);
@@ -103,7 +225,7 @@ export function reconcile(
 
   const changed = touched.length > 0;
   return {
-    elements: changed ? out : (elements as ExcalidrawElement[]),
+    elements: changed ? result : (elements as ExcalidrawElement[]),
     changed,
     spawned,
     patched: [...patched],

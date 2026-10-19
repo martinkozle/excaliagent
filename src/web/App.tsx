@@ -12,6 +12,7 @@ import type { Session } from "../shared/types.ts";
 import { api } from "./api.ts";
 import { cardAt, cardSessionIds, idsToLookup, mergeSessions, resumeCommand, saveHash } from "./board.ts";
 import { defaultGen, formatAge } from "./cards.ts";
+import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
 
 // Serve Excalidraw's fonts from our own server, never a CDN.
@@ -20,6 +21,16 @@ import { reconcile } from "./reconcile.ts";
 const PICKER = "excaliagent-picker";
 const SAVE_DEBOUNCE_MS = 500;
 const TICK_MS = 30_000;
+const measure = canvasMeasure();
+
+// Fonts are split into unicode-range faces; load the ones card text actually uses.
+const SAMPLE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;·›…#-_/()";
+
+/** Card text is wrapped by measured width, so wait for the real fonts (bounded). */
+function fontsReady(): Promise<unknown> {
+  const load = Promise.all([document.fonts.load("20px Excalifont", SAMPLE), document.fonts.load("14px Nunito", SAMPLE)]);
+  return Promise.race([load, new Promise((r) => setTimeout(r, 3000))]).catch(() => {});
+}
 
 type Elements = readonly ExcalidrawElement[];
 
@@ -28,6 +39,7 @@ export function App() {
   const [excalidraw, setExcalidraw] = useState<ExcalidrawImperativeAPI | null>(null);
   const [connected, setConnected] = useState(true);
   const [pickerRows, setPickerRows] = useState<Session[] | null>(null);
+  const [fontsLoaded, setFontsLoaded] = useState(false);
 
   const live = useRef<Session[]>([]);
   const known = useRef(new Map<string, Session>());
@@ -96,7 +108,10 @@ export function App() {
       }
 
       for (const s of add ?? []) known.current.set(s.id, s);
-      const result = reconcile(mergeSessions(live.current, known.current), elements, Date.now(), defaultGen, { add });
+      const result = reconcile(mergeSessions(live.current, known.current), elements, Date.now(), defaultGen, {
+        add,
+        measure,
+      });
       if (!result.changed) return;
       ex.updateScene({ elements: result.elements, captureUpdate: CaptureUpdateAction.NEVER });
       save(true);
@@ -104,9 +119,13 @@ export function App() {
     [excalidraw, save],
   );
 
+  useEffect(() => {
+    if (excalidraw) void fontsReady().then(() => setFontsLoaded(true));
+  }, [excalidraw]);
+
   // Live session stream + periodic refresh of ages and cache warmth.
   useEffect(() => {
-    if (!excalidraw) return;
+    if (!excalidraw || !fontsLoaded) return;
     const unsubscribe = api.subscribe(
       (sessions) => {
         live.current = sessions;
@@ -119,6 +138,9 @@ export function App() {
       },
       setConnected,
     );
+    // A font face that loads later (e.g. a new script) changes measurements: re-fit.
+    const onFonts = () => sync();
+    document.fonts.addEventListener("loadingdone", onFonts);
     let ticks = 0;
     const timer = setInterval(() => {
       if (++ticks % 10 === 0) asked.current.clear();
@@ -128,8 +150,9 @@ export function App() {
     return () => {
       unsubscribe();
       clearInterval(timer);
+      document.fonts.removeEventListener("loadingdone", onFonts);
     };
-  }, [excalidraw, sync]);
+  }, [excalidraw, fontsLoaded, sync]);
 
   const onChange = useCallback(
     (elements: Elements) => {

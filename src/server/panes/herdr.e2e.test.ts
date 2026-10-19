@@ -23,12 +23,14 @@ describe.skipIf(!enabled)("herdr e2e (isolated server)", () => {
   });
 
   it("maps a dummy foreground process to its pane, and follows a new pane", async () => {
-    const link = createHerdrLink({ socketPath: herdr.socketPath, resyncMs: 200, retryMinMs: 20 });
+    const link = createHerdrLink({ socketPath: herdr.socketPath, resyncMs: 60_000, retryMinMs: 20 });
     try {
       await waitFor(() => link.available(), 5000, "link connected");
-      const ws = (await herdrRequest(herdr.socketPath, "workspace.create", { cwd: herdr.dir, focus: false })) as {
-        root_pane?: { pane_id: string };
-      };
+      const ws = (await herdrRequest(herdr.socketPath, "workspace.create", {
+        cwd: herdr.dir,
+        label: "e2e-ws",
+        focus: false,
+      })) as { root_pane?: { pane_id: string }; tab: { tab_id: string } };
       const paneId = ws.root_pane?.pane_id ?? "w1:p1";
 
       // A child sh records its own pid, then execs sleep: the sleep process
@@ -43,9 +45,13 @@ describe.skipIf(!enabled)("herdr e2e (isolated server)", () => {
 
       await link.refresh();
       await waitFor(() => link.match(pid) !== undefined, 5000, "pid matched");
-      expect(link.match(pid)).toEqual({ paneId, workspaceId: paneId.split(":")[0] });
+      expect(link.match(pid)).toMatchObject({ paneId, workspaceId: paneId.split(":")[0], workspaceLabel: "e2e-ws" });
 
-      // A new pane (event-driven rebuild) with its own dummy process.
+      // Renaming the tab reaches the card label via the tab_renamed event.
+      await herdrRequest(herdr.socketPath, "tab.rename", { tab_id: ws.tab.tab_id, label: "renamed by e2e" });
+      await waitFor(() => link.match(pid)?.tabLabel === "renamed by e2e", 5000, "tab label follows rename");
+
+      // A new pane with its own dummy process.
       const split = (await herdrRequest(herdr.socketPath, "pane.split", {
         target_pane_id: paneId,
         direction: "right",
@@ -58,6 +64,7 @@ describe.skipIf(!enabled)("herdr e2e (isolated server)", () => {
       });
       await waitFor(() => existsSync(pidFile2) && readFileSync(pidFile2, "utf8").trim() !== "", 5000, "pid file 2");
       const pid2 = Number(readFileSync(pidFile2, "utf8").trim());
+      await link.refresh(); // what the hub does when a new session registers
       await waitFor(() => link.match(pid2)?.paneId === split.pane.pane_id, 5000, "second pid matched");
 
       await link.focus(split.pane.pane_id); // isolated server only

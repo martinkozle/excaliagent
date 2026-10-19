@@ -232,3 +232,22 @@ export function standardSpec(): HomeSpec {
     },
   };
 }
+
+export const apiRequest = (
+  sessionId: string,
+  timestamp: string,
+  ttls: Array<"1h" | "5m" | undefined>,
+  querySource = "repl_main_thread",
+) => ({
+  type: "api-request",
+  sessionId,
+  timestamp,
+  version: "2.1.303",
+  querySource,
+  params: { model: "synthetic-model", max_tokens: 1000 },
+  tail: [{ role: "user", content: "synthetic tail text" }],
+  cacheControl: ttls.map((ttl, i) => ({
+    path: ["messages", i, "content", 0],
+    value: ttl ? { type: "ephemeral", ttl } : { type: "ephemeral" },
+  })),
+});

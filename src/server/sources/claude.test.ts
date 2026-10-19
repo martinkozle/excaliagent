@@ -249,3 +249,54 @@ describe("watch", () => {
     expect(logs.filter((l) => l.includes("105.json"))).toHaveLength(1);
   });
 });
+
+describe("live git info", () => {
+  async function repoHome(head: string, sub = "") {
+    const h = await seedClaudeHome({});
+    const root = join(h.dir, "work", "demo-app");
+    await mkdir(join(root, ".git"), { recursive: true });
+    await writeFile(join(root, ".git", "HEAD"), head);
+    const cwd = join(root, sub);
+    await mkdir(cwd, { recursive: true });
+    return { h, root, cwd };
+  }
+
+  it("reads the branch from HEAD instead of the stale transcript gitBranch", async () => {
+    const { h, cwd } = await repoHome("ref: refs/heads/feat/mvp-slices\n");
+    home = h;
+    await writeFile(join(h.dir, "sessions", "7.json"), JSON.stringify(registry({ pid: 7, sessionId: sid(1), cwd, status: "idle" })));
+    await mkdir(join(h.dir, "projects", "p"), { recursive: true });
+    await writeFile(join(h.dir, "projects", "p", `${sid(1)}.jsonl`), JSON.stringify(user(sid(1), "2026-10-19T10:00:00.000Z", cwd, "HEAD")) + "\n");
+    const src = createClaudeSource({ claudeDir: h.dir, isAlive: () => true, log: silent, gitTtlMs: 0 });
+    expect((await src.list())[0]!.branch).toBe("feat/mvp-slices");
+    await writeFile(join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n");
+    expect((await src.list())[0]!.branch).toBe("main");
+  });
+
+  it("uses the repo root basename for a session in a subdirectory", async () => {
+    const { h, cwd } = await repoHome("ref: refs/heads/main\n", "packages/web");
+    home = h;
+    await writeFile(join(h.dir, "sessions", "7.json"), JSON.stringify(registry({ pid: 7, sessionId: sid(1), cwd, status: "busy" })));
+    const [s] = await createClaudeSource({ claudeDir: h.dir, isAlive: () => true, log: silent }).list();
+    expect(s!.cwd).toBe(cwd);
+    expect(s!.repo).toBe("demo-app");
+    expect(s!.branch).toBe("main");
+  });
+
+  it("applies to dormant sessions too", async () => {
+    const { h, cwd } = await repoHome("3f2a9c1d0b4e5f60718293a4b5c6d7e8f9012345\n", "src");
+    home = h;
+    await mkdir(join(h.dir, "projects", "p"), { recursive: true });
+    await writeFile(join(h.dir, "projects", "p", `${sid(2)}.jsonl`), JSON.stringify(user(sid(2), "2026-10-19T10:00:00.000Z", cwd, "HEAD")) + "\n");
+    const [s] = await createClaudeSource({ claudeDir: h.dir, log: silent }).listDormant();
+    expect(s!.repo).toBe("demo-app");
+    expect(s!.branch).toBe("3f2a9c1");
+  });
+
+  it("falls back to the transcript branch and cwd basename without a repo", async () => {
+    const src = await standard();
+    const s = (await src.list()).find((x) => x.id === sid(1))!;
+    expect(s.branch).toBe("feature/cards");
+    expect(s.repo).toBe("demo-app");
+  });
+});
