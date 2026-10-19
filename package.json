@@ -56,5 +56,14 @@
     "agents",
     "sessions",
     "board"
-  ]
+  ],
+  "overrides": {
+    "lodash-es": "^4.18.1",
+    "@excalidraw/excalidraw": {
+      "nanoid": "^3.3.20",
+      "@excalidraw/mermaid-to-excalidraw": {
+        "nanoid": "^5.1.16"
+      }
+    }
+  }
 }

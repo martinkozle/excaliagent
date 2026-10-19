@@ -312,3 +312,15 @@ foreign `Origin` are refused and must be `application/json`.
   browsing features.
 - "excaliclaude" on GitHub means "Claude draws diagrams in Excalidraw"; hence the
   name excaliagent (free on npm).
+
+## Dependency audit (2026-10-20)
+
+All advisories come through `@excalidraw/excalidraw` 0.18.1, a dev dependency
+compiled into the web bundle; the published package has no runtime
+dependencies. `package.json` `overrides` pin patched versions within the same
+major: `lodash-es` ^4.18.1, Excalidraw's `nanoid` ^3.3.20, and
+`mermaid-to-excalidraw`'s `nanoid` ^5.1.16 (no patched 4.x; same API). Left
+open: `braces` (no fixed version; build-time only, via Excalidraw's `sass` →
+`chokidar`) and `katex` (low; a fix needs a 0.x minor jump inside mermaid's
+math rendering). Re-check when upgrading Excalidraw and drop overrides it no
+longer needs.
