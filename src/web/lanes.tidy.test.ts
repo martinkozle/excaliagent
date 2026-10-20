@@ -9,6 +9,8 @@ import {
   isFixedCard,
   laneAt,
   laneTargetAt,
+  lanesOf,
+  zonesInView,
   makeLanes,
   moveCards,
   slotBelow,
@@ -213,5 +215,23 @@ describe("draggedCard", () => {
     expect(draggedCard(els, sel([...a, todo]))).toBeUndefined();
     expect(draggedCard(els, {})).toBeUndefined();
     expect(draggedCard(els, sel([a[1]!]))).toBeUndefined(); // a lone title text is not the card
+  });
+});
+
+describe("drag hints: lanesOf / zonesInView", () => {
+  it("lists the non-deleted lanes, in scene order", () => {
+    const gone = { ...doing, id: "gone", isDeleted: true };
+    const a = card("a", 0, 0);
+    expect(lanesOf([...lanes, gone, ...a]).map((l) => l.id)).toEqual(lanes.map((l) => l.id));
+  });
+
+  it("keeps the title bands that intersect the view, with their lane id", () => {
+    // A view covering the first two lanes' bands only.
+    const view = { x: todo.x - 10, y: todo.y - 10, width: doing.x + 10 - todo.x + 10, height: 500 };
+    const zones = zonesInView(lanes, view);
+    expect(zones.map((z) => z.laneId)).toEqual([todo.id, doing.id]);
+    expect(zones[0]!.zone).toEqual({ x: todo.x, y: todo.y, width: todo.width, height: AREA_HEADER });
+    // Scrolled down past the bands: none, even though the lanes themselves are in view.
+    expect(zonesInView(lanes, { ...view, y: todo.y + 300 })).toEqual([]);
   });
 });

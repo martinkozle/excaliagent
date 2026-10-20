@@ -47,8 +47,9 @@ bookmark. Running it again while a board is up just opens that board.
   rename (double-click) or delete. **+ Lane** (top right) adds one more at the
   right end. On an older
   board, add the whole set from the main menu: *Add starter lanes*.
-- **Line cards up in a lane**: drag a card onto a lane's title (the band
-  lights up) and it drops into the lane's column, below the lowest card there.
+- **Line cards up in a lane**: while you drag a card, every lane title shows a
+  faint *drop to stack* hint; drop the card on one (it lights up) and the card
+  goes into the lane's column, below the lowest card there.
   Dropped anywhere else, a card stays exactly where you put it. Right-click a
   lane → *Tidy cards* stacks its cards in one column, top to bottom. Cards
   that are locked, rotated, attached to an arrow or grouped with something

@@ -99,8 +99,10 @@ OpenCode) are a later adapter.
 
 Free placement stays the default: nothing snaps on its own.
 
-- While I drag a single card over a lane's title band, the band lights up and
-  an outline shows where the card will land. Dropping it there puts it in the
+- As soon as I start dragging a single card, every lane title in view shows
+  a faint "drop to stack" hint, so I can see where to drop. Over a lane's
+  title band, that band lights up and an outline shows where the card will
+  land; the hints vanish when I let go. Dropping it there puts it in the
   lane's column, below the lowest card already in the lane. A full lane is not
   grown; the card goes below it. Dropping anywhere else leaves the card exactly
   where I let go.

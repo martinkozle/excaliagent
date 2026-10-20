@@ -45,6 +45,8 @@ import {
   draggedCard,
   dropLaneAt,
   dropZone,
+  lanesOf,
+  zonesInView,
   laneTargetAt,
   moveCards,
   slotBelow,
@@ -88,8 +90,10 @@ function settingsStore(): Storage | undefined {
 type MenuTarget = { kind: "card"; sessionId: string } | { kind: "lane"; laneId: string };
 
 type ViewBox = { left: number; top: number; width: number; height: number };
-/** The highlighted drop zone and the outline of where the card will land, in viewport px. */
-type DropHint = { laneId: string; cardId: string; zone: ViewBox; slot: ViewBox };
+/** The hovered drop zone and the outline of where the card will land, in viewport px. */
+type DropHover = { laneId: string; cardId: string; zone: ViewBox; slot: ViewBox };
+/** While a card is dragged: every visible lane's title band (faint), plus the hovered one (strong). */
+type DropHint = { bands: Array<{ laneId: string; box: ViewBox }>; hover: DropHover | null };
 
 /** A scene box in viewport (client) px. */
 function toViewport(box: { x: number; y: number; width: number; height: number }, appState: AppState): ViewBox {
@@ -347,36 +351,51 @@ export function App() {
   useEffect(() => {
     const ex = excalidraw;
     if (!ex || !laneDrop) return;
+    /** The card being dragged and the lanes, taken once when its drag starts. */
+    let drag: { cardId: string; lanes: ExcalidrawElement[] } | null = null;
     // Pointer moves are frequent: re-render (and so re-render <Excalidraw>) only
-    // when the highlighted zone or the target slot actually changes.
+    // when the visible bands, the hovered zone or the target slot actually change.
     const show = (hint: DropHint | null) => {
       const prev = dropTarget.current;
       if (hintKey(prev) === hintKey(hint)) return;
       dropTarget.current = hint;
       setDropHint(hint);
     };
+    const stop = () => {
+      drag = null;
+      show(null);
+    };
     const onMove = (event: PointerEvent) => {
       const appState = ex.getAppState() as AppState;
-      if (!(event.buttons & 1) || event.altKey || !appState.selectedElementsAreBeingDragged) return show(null);
+      if (!(event.buttons & 1) || event.altKey || !appState.selectedElementsAreBeingDragged) return stop();
       const elements = ex.getSceneElements();
       const card = draggedCard(elements, appState.selectedElementIds);
-      if (!card) return show(null);
+      if (!card) return stop();
+      if (drag?.cardId !== card.id) drag = { cardId: card.id, lanes: lanesOf(elements) };
+      const zoom = appState.zoom.value;
+      const view = { x: -appState.scrollX, y: -appState.scrollY, width: appState.width / zoom, height: appState.height / zoom };
+      const bands = zonesInView(drag.lanes, view).map(({ laneId, zone }) => ({ laneId, box: toViewport(zone, appState) }));
       const { x, y } = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
-      const lane = dropLaneAt(elements, x, y);
-      if (!lane) return show(null);
-      const slot = slotBelow(elements, lane, card.id);
+      const lane = dropLaneAt(drag.lanes, x, y);
+      const slot = lane && slotBelow(elements, lane, card.id);
       show({
-        laneId: lane.id,
-        cardId: card.id,
-        zone: toViewport(dropZone(lane), appState),
-        slot: toViewport({ ...slot, width: card.width, height: card.height }, appState),
+        bands,
+        hover:
+          lane && slot
+            ? {
+                laneId: lane.id,
+                cardId: card.id,
+                zone: toViewport(dropZone(lane), appState),
+                slot: toViewport({ ...slot, width: card.width, height: card.height }, appState),
+              }
+            : null,
       });
     };
     // Excalidraw calls this from inside its own pointerup handler; place the card
     // once that has finished committing the drag.
     const offUp = ex.onPointerUp((_tool, _state, event) => {
-      const hint = dropTarget.current;
-      show(null);
+      const hint = dropTarget.current?.hover;
+      stop();
       if (!hint || event.altKey) return;
       setTimeout(() => {
         const elements = ex.getSceneElements();
@@ -389,7 +408,7 @@ export function App() {
     return () => {
       window.removeEventListener("pointermove", onMove);
       offUp();
-      show(null);
+      stop();
     };
   }, [excalidraw, laneDrop, placeCards]);
 
@@ -555,40 +574,81 @@ function checkbox(on: boolean) {
 function hintKey(h: DropHint | null): string {
   if (!h) return "";
   const r = (b: ViewBox) => [b.left, b.top, b.width, b.height].map(Math.round).join(",");
-  return `${h.laneId}|${h.cardId}|${r(h.zone)}|${r(h.slot)}`;
+  const bands = h.bands.map((b) => `${b.laneId}:${r(b.box)}`).join(";");
+  const hover = h.hover ? `${h.hover.laneId}|${h.hover.cardId}|${r(h.hover.zone)}|${r(h.hover.slot)}` : "";
+  return `${bands}#${hover}`;
 }
 
 /**
- * Not a scene element: a temporary overlay (pointer-events: none) over the lane
- * title band being hovered with a card, plus a dashed outline where the card
- * will land. Portalled into the `.excalidraw` root (like CardMenu) so it uses
- * the theme's colours in light and dark mode.
+ * Not scene elements: a temporary overlay (pointer-events: none) shown while a
+ * card is dragged. Every visible lane's title band gets a faint dashed hint
+ * with a "drop to stack" caption, so the drop zones can be found; the band
+ * under the pointer gets the strong highlight plus a dashed outline where the
+ * card will land. Portalled into the `.excalidraw` root (like CardMenu) so it
+ * uses the theme's colours in light and dark mode.
  */
 function LaneDropHint({ hint, host }: { hint: DropHint; host: HTMLElement }) {
   const box = (b: ViewBox) => ({ position: "fixed", left: b.left, top: b.top, width: b.width, height: b.height }) as const;
+  const { hover } = hint;
   return createPortal(
     <div className="excaliagent-lane-drop" aria-hidden="true" style={{ pointerEvents: "none", position: "fixed", inset: 0, zIndex: 2 }}>
-      <div
-        className="excaliagent-lane-drop-zone"
-        style={{
-          ...box(hint.zone),
-          boxSizing: "border-box",
-          borderRadius: 8,
-          border: "2px solid var(--color-primary)",
-          background: "color-mix(in srgb, var(--color-primary) 22%, transparent)",
-          boxShadow: "0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent)",
-        }}
-      />
-      <div
-        className="excaliagent-lane-drop-slot"
-        style={{
-          ...box(hint.slot),
-          boxSizing: "border-box",
-          borderRadius: 8,
-          border: "2px dashed var(--color-primary)",
-          background: "color-mix(in srgb, var(--color-primary) 8%, transparent)",
-        }}
-      />
+      {hint.bands
+        .filter((b) => b.laneId !== hover?.laneId)
+        .map((b) => (
+          <div
+            key={b.laneId}
+            className="excaliagent-lane-hint"
+            style={{
+              ...box(b.box),
+              boxSizing: "border-box",
+              borderRadius: 8,
+              border: "1.5px dashed color-mix(in srgb, var(--color-primary) 55%, transparent)",
+              background: "color-mix(in srgb, var(--color-primary) 7%, transparent)",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                right: 6,
+                bottom: "100%",
+                marginBottom: 2,
+                fontSize: 11,
+                lineHeight: 1.2,
+                whiteSpace: "nowrap",
+                fontFamily: "var(--ui-font, sans-serif)",
+                color: "var(--color-primary)",
+                opacity: 0.85,
+              }}
+            >
+              drop to stack ↓
+            </span>
+          </div>
+        ))}
+      {hover && (
+        <>
+          <div
+            className="excaliagent-lane-drop-zone"
+            style={{
+              ...box(hover.zone),
+              boxSizing: "border-box",
+              borderRadius: 8,
+              border: "2px solid var(--color-primary)",
+              background: "color-mix(in srgb, var(--color-primary) 22%, transparent)",
+              boxShadow: "0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent)",
+            }}
+          />
+          <div
+            className="excaliagent-lane-drop-slot"
+            style={{
+              ...box(hover.slot),
+              boxSizing: "border-box",
+              borderRadius: 8,
+              border: "2px dashed var(--color-primary)",
+              background: "color-mix(in srgb, var(--color-primary) 8%, transparent)",
+            }}
+          />
+        </>
+      )}
     </div>,
     host,
   );

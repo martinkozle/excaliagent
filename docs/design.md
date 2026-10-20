@@ -384,10 +384,15 @@ their rotated bounds), and a fixed card being dragged is never placed.
   lane keeps working, and over a small button so it needs no extra element.
   The hit test uses the pointer, not the card. While Excalidraw reports
   `selectedElementsAreBeingDragged`, the selection is exactly one card (its
-  rect plus its own parts; any other selected element opts out) and the
-  pointer is in a zone, a temporary overlay (a `position: fixed`,
+  rect plus its own parts; any other selected element opts out, as does a
+  fixed card or Alt held), a temporary overlay (a `position: fixed`,
   `pointer-events: none` div placed with `sceneCoordsToViewportCoords`, never a
-  scene element) tints the band and outlines the target slot. On drop
+  scene element) makes the zones discoverable: every lane title band in the
+  viewport (`zonesInView`, from the lane list taken once at drag start with
+  `lanesOf`) gets a faint dashed outline and tint with a small "drop to stack"
+  caption above it. The band under the pointer instead gets the strong
+  highlight, and the target slot is outlined. The hints go on drop, when the
+  button is released anywhere, or when the drag stops qualifying. On drop
   (Excalidraw's `onPointerUp` API, then a `setTimeout(0)` so Excalidraw has
   committed its drag first), the card group moves to `slotBelow`: x = lane x +
   `GAP`, y = below the lowest other card whose centre is inside the lane
@@ -397,8 +402,8 @@ their rotated bounds), and a fixed card being dragged is never placed.
   second undoes the drag. Alt held (Excalidraw's duplicate-drag) opts out.
   The overlay is portalled into the `.excalidraw` root (like the card menu)
   and coloured with `var(--color-primary)`, so it follows the light/dark
-  theme. The App re-renders only when the zone or target slot changes (to the
-  whole px), not on every pointer move.
+  theme. The App re-renders only when the visible bands, the hovered zone or
+  the target slot change (to the whole px), not on every pointer move.
 - **Column spacing** (`slotBelow`, `tidyMoves`): a card that still has its
   app-set height (`appHeight`, ±0.5 px) takes `max(height, CARD_H)`, so a
   one-line card keeps room to grow a second title line, as in the inbox grid;

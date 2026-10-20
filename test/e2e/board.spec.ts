@@ -520,12 +520,44 @@ test.describe("lining cards up in a lane", () => {
     const from = centre(ID.needsUser);
     const before = card(ID.needsUser)!;
     await drag(page, from, { x: lane.x + lane.width / 2, y: lane.y + 400 }, async () => {
-      await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
+      await expect(page.locator(".excaliagent-lane-hint").first()).toBeVisible();
+      await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
     });
+    await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
     await expect.poll(() => card(ID.needsUser)?.y).not.toBe(before.y);
     await page.waitForTimeout(300);
     const after = card(ID.needsUser)!;
     expect(after.x).toBeCloseTo(before.x + (lane.x + lane.width / 2 - from.x), 0);
+  });
+
+  test("as soon as a card is dragged, every visible lane title shows a faint hint; gone after the drop", async ({ page }) => {
+    await frame(page);
+    const vp = page.viewportSize()!;
+    // At zoom 1 and scroll 0, scene x is viewport x: the lanes whose title band is on screen.
+    const visible = lanes().filter((l) => l.x < vp.width && l.x + l.width > 0).length;
+    expect(visible).toBeGreaterThanOrEqual(2);
+    const from = centre(ID.needsUser);
+    const a = await toView(page, from.x, from.y);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    // A short drag inside the inbox: nowhere near a lane title yet.
+    await page.mouse.move(a.x - 30, a.y + 40, { steps: 5 });
+    const hints = page.locator(".excalidraw .excaliagent-lane-hint");
+    await expect(hints).toHaveCount(visible);
+    await expect(hints.first()).toContainText("drop to stack");
+    await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
+    // Over one band: that one gets the strong highlight, the others stay faint.
+    const lane = todo();
+    const band = await toView(page, lane.x + lane.width / 2, lane.y + 25);
+    await page.mouse.move(band.x, band.y, { steps: 10 });
+    await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(1);
+    await expect(hints).toHaveCount(visible - 1);
+    await page.screenshot({ path: "test-results/board-lane-hints.png" });
+    // Back off the band and let go: no drop, and every hint is gone.
+    await page.mouse.move(a.x - 30, a.y + 40, { steps: 10 });
+    await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
   });
 
   test("Tidy cards (right-click a lane) stacks its cards in their vertical order, undoably", async ({ page }) => {

@@ -131,6 +131,16 @@ export function dropLaneAt(elements: readonly ExcalidrawElement[], x: number, y:
   return elements.findLast((e) => isLane(e) && inside(dropZone(e), x, y));
 }
 
+/** The non-deleted lanes, in scene order (taken once when a drag starts). */
+export function lanesOf(elements: readonly ExcalidrawElement[]): ExcalidrawElement[] {
+  return elements.filter(isLane);
+}
+
+/** Drop zones of `lanes` that intersect the visible scene area `view`: the hints shown while dragging a card. */
+export function zonesInView(lanes: readonly ExcalidrawElement[], view: Box): Array<{ laneId: string; zone: Box }> {
+  return lanes.map((l) => ({ laneId: l.id, zone: dropZone(l) })).filter(({ zone }) => overlaps(zone, view));
+}
+
 /** Card rects whose centre is inside the lane, in scene order. */
 export function cardsInLane(elements: readonly ExcalidrawElement[], lane: Box): ExcalidrawElement[] {
   return elements.filter((e) => !e.isDeleted && cardMeta(e) && inside(lane, e.x + e.width / 2, e.y + e.height / 2));
