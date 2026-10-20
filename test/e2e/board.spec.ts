@@ -428,7 +428,7 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
  */
 async function expectTopButtonsClean(page: Page): Promise<number> {
   const buttons = page.locator(".excaliagent-top .sidebar-trigger");
-  await expect(buttons).toHaveCount(3);
+  await expect(buttons).toHaveCount(4); // + Lane, Tidy all, Characters, Sessions
   const vp = page.viewportSize()!;
   const boxes = [];
   let labels = 0;
@@ -456,7 +456,7 @@ async function expectTopButtonsClean(page: Page): Promise<number> {
     if (await el.isVisible()) boxes.push((await el.boundingBox())!);
   }
   // Pairs with at least one of ours (Library sits inside the mobile column).
-  for (let i = 0; i < 3; i++)
+  for (let i = 0; i < 4; i++)
     for (let j = i + 1; j < boxes.length; j++) {
       const [a, b] = [boxes[i]!, boxes[j]!];
       const overlap = a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
@@ -474,7 +474,7 @@ test("the top-right buttons never overlap: labels collapse into tooltips on narr
     await expect.poll(() => page.evaluate(() => (window as any).__excaliagent.excalidraw.getAppState().width)).toBe(width);
     shown[width] = await expectTopButtonsClean(page);
   }
-  expect(shown).toEqual({ 1400: 3, 1160: 3, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
+  expect(shown).toEqual({ 1400: 4, 1160: 0, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
   // Icon-only buttons keep their names and tooltips, and still work.
   await expect(page.getByRole("button", { name: "Add lane" })).toHaveAttribute("title", "Add a lane at the right end");
   await page.getByRole("button", { name: "Add lane" }).click();

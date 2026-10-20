@@ -171,7 +171,6 @@ export function CharactersPanel({
   /** The pack whose radio is checked: the one just chosen, until the server answers. */
   const active = choosing ?? data.activePack;
   const pack: Pack | undefined = data.packs.find((p) => p.id === (viewing ?? active)) ?? data.packs[0];
-  const activeName = data.packs.find((p) => p.id === active)?.name;
 
   const run = async (fn: () => Promise<CharactersData>, after?: () => void) => {
     setBusy(true);
@@ -221,7 +220,8 @@ export function CharactersPanel({
           <input
             type="text"
             aria-label="Add an emoji"
-            placeholder="Type or paste an emoji, or paste an image"
+            placeholder="Emoji or image"
+            title="Type or paste an emoji, or paste an image"
             value={emoji}
             onChange={(e) => setEmoji(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addEmoji()}
@@ -374,11 +374,6 @@ export function CharactersPanel({
               </>
             )}
           </div>
-          <p className="excaliagent-note excaliagent-pack-status">
-            {pack.id === active
-              ? "Active: the cards use this pack."
-              : `Preview only: the cards use ${activeName ?? "another pack"}. Pick its radio button to use it.`}
-          </p>
           {pack.builtIn && <p className="excaliagent-note">Built-in packs are read-only.</p>}
           {pack.error && <p className="excaliagent-error">{pack.error}</p>}
           {editor}

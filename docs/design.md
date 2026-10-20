@@ -416,7 +416,7 @@ their rotated bounds), and a fixed card being dragged is never placed.
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
 - **Top-right buttons** (`TopBar.tsx`, `topbar.ts`, `topbar.css`): "+ Lane",
-  "Tidy all" and "Sessions" are styled like Excalidraw's Library button (its
+  "Tidy all", "Characters" and "Sessions" are styled like Excalidraw's Library button (its
   `sidebar-trigger` class): a 24 px tabler-style icon (stroke 1.25, like
   Excalidraw's) and a one-line label. `sidebar-trigger` sets `line-height: 0`,
   so a label that wraps draws its lines over each other; ours never wrap.
@@ -565,11 +565,12 @@ their rotated bounds), and a fixed card being dragged is never placed.
   makes it active and also shows it below, so right after a choice the
   checked radio and the preview always agree; clicking anywhere else on the
   row (its name is a "Show …" button for the keyboard) only shows the pack.
-  A line under the pack's name says "Active" or "Preview only: the cards use
-  <active pack>"; the radio stays checked on the pack chosen until the server
+  The shown pack's row is highlighted (no extra status line: the maintainer
+  found it noise); the radio stays checked on the pack chosen until the server
   answers. Create, rename, delete, duplicate; a pack's characters as
   library-like cells; add emoji by typing or pasting, images by pasting into
-  that field, dropping (the drop is stopped so Excalidraw does not also put the
+  that field (placeholder "Emoji or image", the full hint in its tooltip, so it
+  fits the panel), dropping (the drop is stopped so Excalidraw does not also put the
   image on the canvas) or uploading.
 - **`<stateDir>/characters.json`** (written atomically, a failed write leaves
   no temp file; a corrupt file is moved aside as

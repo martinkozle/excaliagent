@@ -111,7 +111,7 @@ OpenCode) are a later adapter.
   paste, drop or upload images, remove characters, rename, delete, or
   duplicate a built-in pack to edit it. Switching packs and back restores each
   session's character in that pack. Choosing a pack also shows it; clicking a
-  pack's row only shows it, clearly marked as a preview.
+  pack's row only shows it, its row highlighted.
 - A custom pack is a plain folder in the state dir; files I drop there by hand
   work too. A broken pack only breaks itself.
 

@@ -37,7 +37,7 @@ import {
 import { CardMenu } from "./CardMenu.tsx";
 import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
-import { PlusIcon, SessionsIcon, TidyIcon, TopBar, TopButton } from "./TopBar.tsx";
+import { CharactersIcon, PlusIcon, SessionsIcon, TidyIcon, TopBar, TopButton } from "./TopBar.tsx";
 import { topBarLayout } from "./topbar.ts";
 import { reconcile } from "./reconcile.ts";
 import {
@@ -745,7 +745,12 @@ export function App() {
               title="Stack the cards of every lane and the inbox (one undo step)"
               onClick={tidyAll}
             />
-            <Sidebar.Trigger name={CHARACTERS} title="Character packs for the cards" onToggle={(open) => open && refreshChars()}>
+            <Sidebar.Trigger
+              name={CHARACTERS}
+              icon={CharactersIcon}
+              title="Character packs for the cards"
+              onToggle={(open) => open && refreshChars()}
+            >
               Characters
             </Sidebar.Trigger>
             <Sidebar.Trigger

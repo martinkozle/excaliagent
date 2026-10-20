@@ -143,6 +143,24 @@ test("a custom pack with an uploaded image becomes the active pack", async ({ pa
   await panel.getByLabel("New pack name").fill("mobs");
   await panel.getByRole("button", { name: "Create" }).click();
   await expect(panel.getByRole("radio", { name: "Use mobs" })).toBeVisible();
+  // The add field: a short placeholder that fits, the long hint as its tooltip,
+  // and the field and its Add button inside the panel.
+  const field = panel.getByLabel("Add an emoji");
+  await expect(field).toHaveAttribute("placeholder", "Emoji or image");
+  await expect(field).toHaveAttribute("title", "Type or paste an emoji, or paste an image");
+  const fits = await field.evaluate((el: HTMLInputElement) => {
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    const cs = getComputedStyle(el);
+    ctx.font = cs.font;
+    const inner = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    return ctx.measureText(el.placeholder).width <= inner;
+  });
+  expect(fits).toBe(true);
+  const panelBox = (await panel.boundingBox())!;
+  for (const box of [await field.boundingBox(), await panel.getByRole("button", { name: "Add", exact: true }).boundingBox()]) {
+    expect(box!.x).toBeGreaterThanOrEqual(panelBox.x);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(panelBox.x + panelBox.width + 0.5);
+  }
   await panel.locator('input[type="file"]').setInputFiles({ name: "creeper face.png", mimeType: "image/png", buffer: PNG });
   await expect(panel.locator('[data-character="creeper-face.png"] img')).toBeVisible();
   await panel.getByLabel("Add an emoji").fill("🧟");
@@ -275,19 +293,18 @@ test("the Characters panel keeps the radio and the preview in sync", async ({ pa
   await open(page);
   await page.getByTitle("Character packs for the cards").click();
   const panel = page.locator(".excaliagent-chars");
-  const status = panel.locator(".excaliagent-pack-status");
+  const viewed = panel.locator('.excaliagent-pack-row[data-viewing="true"]');
   await expect(panel.getByRole("radio", { name: "Use Animals" })).toBeChecked();
-  await expect(status).toContainText("Active");
+  await expect(viewed).toHaveText(/Animals/);
 
   // Show Sea (preview only), then activate Food by its radio: Food is checked and shown.
   await panel.getByRole("button", { name: "Show Sea" }).click();
   await expect(panel.locator('[data-character="🐙"]')).toBeVisible();
-  await expect(status).toContainText("Preview only: the cards use Animals");
+  await expect(viewed).toHaveText(/Sea/);
   await panel.getByRole("radio", { name: "Use Food" }).check();
   await expect(panel.getByRole("radio", { name: "Use Food" })).toBeChecked();
   await expect(panel.locator('[data-character="🍎"]')).toBeVisible();
   await expect(panel.locator('[data-character="🐙"]')).toHaveCount(0);
-  await expect(status).toContainText("Active");
   await expect.poll(() => stateFile().activePack).toBe("@food");
   await expect(panel.locator('.excaliagent-pack-row[data-viewing="true"]')).toHaveText(/Food/);
 
@@ -295,7 +312,9 @@ test("the Characters panel keeps the radio and the preview in sync", async ({ pa
   await panel.locator(".excaliagent-pack-row", { hasText: "Fantasy" }).locator(".count").click();
   await expect(panel.locator('[data-character="🐉"]')).toBeVisible();
   await expect(panel.getByRole("radio", { name: "Use Food" })).toBeChecked();
-  await expect(status).toContainText("Preview only: the cards use Food");
+  await expect(viewed).toHaveText(/Fantasy/);
+  // No helper line: the highlighted row and the checked radio say it all.
+  await expect(panel.getByText(/Preview only|Active:/)).toHaveCount(0);
   await page.waitForTimeout(300);
   expect(stateFile().activePack).toBe("@food");
 });
