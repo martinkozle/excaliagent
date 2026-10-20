@@ -137,7 +137,9 @@ describe("createHerdrClient subscription", () => {
     let attempts = 0;
     const server = net.createServer((s) => {
       attempts++;
-      s.on("data", () => s.end(JSON.stringify({ id: "", error: { code: "invalid_request", message: "no" } }) + "\n"));
+      // The client may hang up before the reply is written (EPIPE); that is the point.
+      s.on("error", () => {});
+      s.on("data",() => s.end(JSON.stringify({ id: "", error: { code: "invalid_request", message: "no" } }) + "\n"));
     });
     await new Promise<void>((r) => server.listen(t.socketPath, r));
     cleanups.push(() => new Promise<void>((r) => server.close(() => r())));
