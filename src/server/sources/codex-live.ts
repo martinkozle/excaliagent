@@ -15,9 +15,12 @@
 //
 // So a thread held by a non-daemon codex process is live in that process. A
 // thread held by the daemon is live only when a TUI process claims it: by its
-// argv (`resume <id>`), else by working directory, newest lock first, among
-// threads loaded after that TUI started (a thread loaded earlier belongs to
-// another, maybe closed, TUI; a fresh TUI's own thread appears ~1 s after it).
+// argv (`resume <id>`), else by working directory, among threads loaded after
+// that TUI started (a thread loaded earlier belongs to another, maybe closed,
+// TUI; a fresh TUI's own thread appears ~1.4 s after it): one with a rollout
+// if any, else its earliest new thread (with auto-review on, the daemon loads
+// a second, reviewer thread right after the conversation, which never gets a
+// rollout unless it reviews something).
 // Daemon threads no TUI claims are lingering, i.e. dormant. Only the first two
 // (in-process holder, `resume <id>`) are exact; a working-directory claim is a
 // guess, so such a session cannot be stopped from the board. Pure matching
@@ -128,6 +131,8 @@ export interface LiveThread {
  * Pure: which held threads are live, and where. `threadCwd` gives a thread's
  * start cwd (from its rollout; undefined before the first message is written).
  * `isUser` says whether a thread may be claimed by a TUI (not a sub-agent etc.).
+ * `threadActivity` gives the epoch ms of a thread's last rollout activity, and
+ * is undefined exactly when it has no rollout (default: when it has no cwd).
  * Deterministic: the same locks and processes give the same answer in any order.
  */
 export function assignLive(
@@ -135,6 +140,7 @@ export function assignLive(
   procs: readonly CodexProcess[],
   threadCwd: (id: string) => string | undefined,
   isUser: (id: string) => boolean = () => true,
+  threadActivity: (id: string) => number | undefined = (id) => (threadCwd(id) === undefined ? undefined : 0),
 ): LiveThread[] {
   const byPid = new Map(procs.map((p) => [p.pid, p]));
   const out: LiveThread[] = [];
@@ -150,10 +156,34 @@ export function assignLive(
   const tuis = procs
     .filter((p) => !isDaemon(p.argv) && isTui(p.argv) && !codexPids.has(p.ppid))
     .filter((p) => !out.some((t) => t.pid === p.pid))
-    // Newest first: a later TUI is more likely on the newest thread of a directory.
+    // Newest first: a later TUI is more likely on the newest thread of a directory,
+    // and what it leaves (its reviewer, say) is reserved before older TUIs choose.
     .sort((a, b) => b.startedAt - a.startedAt || b.pid - a.pid);
   const free = new Set(daemonHeld.filter((l) => isUser(l.threadId)).map((l) => l.threadId));
   const loaded = new Map(daemonHeld.map((l) => [l.threadId, l.loadedAt]));
+  const created = (id: string) => uuidV7Ms(id) ?? loaded.get(id)!;
+  // Earliest created first; a tie goes to the smaller id, never to scan order.
+  const earlier = (a: string, b: string) => created(a) - created(b) || (a < b ? -1 : a > b ? 1 : 0);
+  /** Free threads `t` can have opened: from its directory (or no rollout yet), loaded after it started. */
+  const candidates = (t: CodexProcess): string[] =>
+    [...free]
+      .filter((id) => {
+        const cwd = threadCwd(id);
+        if (cwd !== undefined && cwd !== t.cwd) return false;
+        const rollout = threadActivity(id) !== undefined;
+        // `codex resume` (its picker) only ever opens a thread with a rollout.
+        if (!rollout && codexSubcommand(t.argv) === "resume") return false;
+        // Loaded after it started (else another TUI's, lingering), and, with no
+        // rollout yet (nobody can resume such a thread), created after it
+        // started. startedAt is never late (btime is whole seconds, rounded
+        // down), so its own thread always passes.
+        if (t.startedAt > 0 && (loaded.get(id)! < t.startedAt || (!rollout && created(id) < t.startedAt))) return false;
+        return true;
+      })
+      .sort(earlier);
+  // Threads loaded after a TUI started that it did not take (its reviewer, say):
+  // no other TUI may take them either, unless one is that TUI's own earliest.
+  const reserved = new Set<string>();
   const claimed = new Set<number>();
   for (const t of tuis) {
     const id = argvThreadId(t.argv);
@@ -164,24 +194,22 @@ export function assignLive(
       out.push({ threadId: id, pid: t.pid, exact: true, ...(t.cwd ? { cwd: t.cwd } : {}) });
     }
   }
+  for (const t of tuis) if (claimed.has(t.pid) && t.cwd) for (const id of candidates(t)) reserved.add(id);
   for (const t of tuis) {
     if (claimed.has(t.pid) || !t.cwd) continue;
-    let best: string | undefined;
-    for (const id of free) {
-      const cwd = threadCwd(id);
-      if (cwd !== undefined && cwd !== t.cwd) continue;
-      // Only threads this TUI can have opened: loaded after it started (else
-      // another TUI's, lingering), and, with no rollout yet (nobody can resume
-      // such a thread), created after it started. startedAt is never late
-      // (btime is whole seconds, rounded down), so its own thread always passes.
-      if (t.startedAt > 0) {
-        if (loaded.get(id)! < t.startedAt) continue;
-        const created = uuidV7Ms(id);
-        if (cwd === undefined && created !== undefined && created < t.startedAt) continue;
-      }
-      // Newest load wins; a tie goes to the larger (v7: newer) id, never to scan order.
-      if (best === undefined || loaded.get(id)! > loaded.get(best)! || (loaded.get(id) === loaded.get(best) && id > best)) best = id;
-    }
+    const mine = candidates(t);
+    const allowed = mine.filter((id, i) => i === 0 || !reserved.has(id));
+    for (const id of mine) reserved.add(id);
+    // A thread with a rollout wins (the newest activity, then the newest load,
+    // then the larger id); else the earliest new thread: the conversation, not
+    // the auto-review thread the daemon loads just after it.
+    const withRollout = allowed.filter((id) => threadActivity(id) !== undefined);
+    const best = withRollout.length
+      ? withRollout.reduce((a, b) => {
+          const d = threadActivity(b)! - threadActivity(a)! || loaded.get(b)! - loaded.get(a)!;
+          return d > 0 || (d === 0 && b > a) ? b : a;
+        })
+      : allowed[0];
     if (best === undefined) continue;
     free.delete(best);
     out.push({ threadId: best, pid: t.pid, cwd: t.cwd, exact: false });

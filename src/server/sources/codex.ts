@@ -207,10 +207,16 @@ export function createCodexSource(opts: CodexSourceOptions = {}): Source {
     const cwds = new Map<string, string | undefined>();
     for (const [id, r] of infos) cwds.set(id, r?.cwd ? await real(r.cwd) : undefined);
     // A thread without a rollout yet is a fresh TUI's; a thread with one must be a person's.
-    return assignLive(scan.locks, scan.procs, (id) => cwds.get(id), (id) => {
-      const r = infos.get(id);
-      return !r || isUserThread(r);
-    });
+    return assignLive(
+      scan.locks,
+      scan.procs,
+      (id) => cwds.get(id),
+      (id) => {
+        const r = infos.get(id);
+        return !r || isUserThread(r);
+      },
+      (id) => infos.get(id)?.lastTimestamp,
+    );
   }
 
   /** One look at the live threads and their sessions, reused for cacheMs. */

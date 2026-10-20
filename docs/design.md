@@ -149,8 +149,10 @@ How these were learned: the source at tag `rust-v0.163.0`
 `codex-cli 0.163.0` (Linux, nix build) with a temporary `HOME`/`CODEX_HOME`/
 `XDG_*`, a `config.toml` pointing a custom `model_provider` at a local mock of
 the Responses API, `codex exec` and the TUI inside an isolated tmux server.
-"(V)" = seen in those runs; "(S)" = read from source only. Never checked
-against a real Codex home.
+"(V)" = seen in those runs; "(S)" = read from source only. The board's code
+never ran against a real Codex home; one fact below ("M") comes from a
+metadata-only trace (lock files, rollout names, process list; no contents)
+the maintainer took of their own Codex home.
 
 ### Home
 
@@ -233,12 +235,38 @@ shows too).
   the processes polled every 200 ms): the TUI process starts; ~1.4 s later
   the daemon creates and locks its new thread (lock birth after the TUI's
   start; the thread's v7 id dates from then too); the rollout appears with the
-  first prompt. One thread per TUI, with or without the folder-trust prompt
-  (then the thread is created after "Trust and continue"). A TUI closed
-  before its first prompt leaves its thread loaded in the daemon, with no
-  rollout, like any other (and `loaded-threads.json` in
-  `app-server-daemon/` lists the loaded threads for the daemon's restarts, S:
-  `app-server-transport/src/daemon_recovery.rs`).
+  first prompt. With the folder-trust prompt the thread is created after
+  "Trust and continue". A TUI closed before its first prompt leaves its
+  thread loaded in the daemon, with no rollout, like any other (and
+  `loaded-threads.json` in `app-server-daemon/` lists the loaded threads for
+  the daemon's restarts, S: `app-server-transport/src/daemon_recovery.rs`).
+- **The second thread: auto-review.** A TUI may get *two* new threads, not
+  one. M (codex-cli 0.163.0, nixpkgs build, inside herdr, the shared daemon
+  already running): the daemon created and locked thread A ~1 s after the
+  TUI started and a second thread B ~0.56 s after A; the first prompt wrote
+  a rollout for A only, B never got one, and the daemon kept both locks while
+  loaded. Every earlier TUI start in that home left the same pair, 0.4–1.1 s
+  apart. The cause (their `config.toml` sets it, and it reproduces in a
+  throwaway home): `approvals_reviewer = "auto_review"` (with an
+  `approval_policy` of `on-request` or granular). On every thread that is
+  ready, the guardian extension prewarms an approvals-reviewer thread (S:
+  `ext/guardian-v2/src/sync_reviewer/mod.rs` `on_thread_ready`,
+  `core/src/guardian/review_session_setup.rs` `prepare_review_prewarm`):
+  session source `Internal(Guardian)`, `thread_source: "guardian_review"`,
+  not ephemeral, so it holds a writer lock like any thread. V in a throwaway
+  home: without the setting, one lock; with it, two, the reviewer 50–70 ms
+  after the conversation (it was slower on the maintainer's machine, which
+  also has plugins and MCP servers), and only the conversation got a rollout,
+  even when a turn requested an escalated command. `freshTui` in
+  `test/mock-codex.ts` reproduces the pair. The reviewer is not marked
+  anywhere the board reads before it has a rollout: its lock file is empty
+  like any other, and the only differences seen were optional caches that
+  exist for the conversation alone (`shell_snapshots/<id>.*.sh`,
+  `tui-thread-reference-capabilities/<id>`, both written only under some
+  settings, S). If it ever writes a rollout, its `session_meta` says
+  `guardian_review` and the user-thread filter drops it. So the board
+  cannot exclude it by a mark; it tells it apart by order: **the
+  conversation is the first new thread after the TUI's start.**
 - **Codex's own helpers run its binary** (V on 0.163.0): every sandboxed
   command runs `codex-linux-sandbox --sandbox-policy-cwd <repo> ...` (exe =
   the codex binary, cwd = the repo) twice, once under the daemon and once
@@ -249,19 +277,31 @@ shows too).
   Codex process is live in that process. A thread held by the daemon is live
   only when a TUI process claims it: first by argv (`resume <id>`), then each
   remaining TUI (latest start time first, from `/proc/<pid>/stat` + `btime`)
-  claims the most recently loaded (lock file
-  birth time; a tie goes to the larger id, never to scan order) unclaimed user
-  thread whose `session_meta.cwd` (realpath) equals
-  the TUI's `/proc/<pid>/cwd`, or one with no rollout yet (a fresh TUI's),
-  among the threads it can have opened: loaded after the TUI started, and,
-  with no rollout, also created (v7 id) after it started (nobody can resume a
-  thread without a rollout, so it is the TUI's that made it). The computed
-  start time is never late (`btime` is whole seconds, rounded down).
-  Without that rule (the first Codex adapter), a new TUI next to a
-  closed TUI's unprompted thread in the same directory claimed that thread
-  for the ~1.4 s before its own existed (a second card, which then went
-  dormant), and claimed it again whenever a sandbox helper, counted as a
-  newer TUI, took its own thread (the card flapped live and dormant).
+  claims one of its candidates: the unclaimed user threads whose
+  `session_meta.cwd` (realpath) equals the TUI's `/proc/<pid>/cwd`, or with
+  no rollout yet (a fresh TUI's), that it can have opened: loaded (lock file
+  birth time) after the TUI started, and, with no rollout, also created (v7
+  id) after it started (nobody can resume a thread without a rollout, so it
+  is the TUI's that made it; for the same reason `codex resume` without an
+  id, still in its picker, gets no rollout-less candidate). The computed
+  start time is never late (`btime` is whole seconds, rounded down). Of its
+  candidates, a thread with a rollout wins (the newest last line, then the
+  newest load, then the larger id); else the earliest created (v7 id; a tie
+  goes to the smaller id, never to scan order): the conversation, not the
+  reviewer loaded after it. A TUI's candidates it did not take are reserved:
+  no other (older) TUI may take them either, unless one is that TUI's own
+  earliest candidate. So an older TUI in another directory, or one in the
+  same directory, never takes a newer TUI's reviewer, and the answer is the
+  same on every poll: the conversation alone, beside its reviewer, and once
+  prompted.
+  Without those rules, a new TUI next to a closed TUI's unprompted thread in
+  the same directory claimed that thread for the ~1.4 s before its own
+  existed (a second card, which then went dormant), and claimed it again
+  whenever a sandbox helper, counted as a newer TUI, took its own thread (the
+  card flapped live and dormant); and with auto-review on, the newest-load
+  rule of the next version showed the conversation, then the reviewer (the
+  conversation's card went dormant), then the conversation again once its
+  rollout existed (M).
   Unclaimed daemon threads are lingering → dormant. Its pid is the TUI's, so
   herdr links the pane like Claude's. The npm shim (`node …/codex.js`, S) and
   its native child count once, as the shim. A TUI that names a thread
@@ -272,10 +312,13 @@ shows too).
   `Session.canEnd` (the board offers Stop) and only they can be stopped
   (`end` answers "unsupported" otherwise), so a guess never sends a SIGTERM.
 - **Known gap**: two TUIs in one directory: a thread the later one loaded is
-  matched to it, even if the earlier one opened it. `/new` or `/resume`
-  inside a TUI switches threads without changing its argv; the cwd rule then
-  picks the newest load. A `/resume` of a thread the daemon still had loaded
-  (no new lock) is not matched: that card stays dormant. After a daemon restart
+  matched to it, even if the earlier one opened it; two TUIs started within
+  ~2 s of each other may show each other's thread (still one card each, no
+  reviewer's). `/new` or `/resume` inside a TUI switches threads without
+  changing its argv; the cwd rule then keeps a thread with a rollout over a
+  new one without, and among rollouts picks the newest activity. A `/resume`
+  of a thread the daemon still had loaded (no new lock) is not matched: that
+  card stays dormant. After a daemon restart
   every thread is reloaded, so lingering same-directory threads may be
   matched again. Mismatches only affect which of two same-directory cards is
   live.

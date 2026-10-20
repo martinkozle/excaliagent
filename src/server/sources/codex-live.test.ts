@@ -89,13 +89,13 @@ describe("assignLive", () => {
     ]);
   });
 
-  it("else a TUI claims the newest loaded thread from its own directory (or one with no rollout yet)", () => {
+  it("else a TUI claims a thread from its own directory: one with a rollout (on a tie, the newest load), else one with none yet", () => {
     const procs = [proc(10, DAEMON, "/"), proc(20, [BIN], A), proc(30, [BIN], B)];
     const cwd = (id: string) => ({ [tid(1)]: A, [tid(2)]: A, [tid(3)]: B })[id];
     const live = assignLive([lock(1, 10, 100), lock(2, 10, 200), lock(3, 10, 50), lock(4, 10, 300)], procs, cwd);
-    // TUI 30 (started last) in B: tid(4) has no rollout yet and is newer than tid(3).
+    // TUI 30 (started last) in B: tid(3) has a rollout, so it beats tid(4), which has none yet.
     expect(live).toEqual([
-      { threadId: tid(4), pid: 30, cwd: B, exact: false },
+      { threadId: tid(3), pid: 30, cwd: B, exact: false },
       { threadId: tid(2), pid: 20, cwd: A, exact: false },
     ]);
   });
@@ -173,7 +173,7 @@ describe("assignLive", () => {
         { threadId: old, pid: 10, loadedAt: T - 9_000 },
         { threadId: mine, pid: 10, loadedAt: T + 1_400 },
       ];
-      // Two candidates loaded in the same millisecond tie-break by id, not by scan order.
+      // Two rollout-less candidates created in the same millisecond tie-break by id, not by scan order.
       const tied = [
         { threadId: v7(T + 2_000, 4), pid: 10, loadedAt: T + 2_000 },
         { threadId: v7(T + 2_000, 5), pid: 10, loadedAt: T + 2_000 },
@@ -183,7 +183,7 @@ describe("assignLive", () => {
         const procs = flip ? [tui, daemon] : [daemon, tui];
         expect(assignLive(flip ? [...both].reverse() : both, procs, noRollout)).toEqual([{ threadId: mine, pid: 20, cwd: A, exact: false }]);
         expect(assignLive(flip ? [...tied].reverse() : tied, procs, noRollout)).toEqual([
-          { threadId: v7(T + 2_000, 5), pid: 20, cwd: A, exact: false },
+          { threadId: v7(T + 2_000, 4), pid: 20, cwd: A, exact: false },
         ]);
       }
     });
@@ -204,6 +204,106 @@ describe("assignLive", () => {
           { threadId: mine, pid: 20, cwd: A, exact: false },
         ]);
       }
+    });
+  });
+
+  // Verified on codex-cli 0.163.0 (nixpkgs): with `approvals_reviewer =
+  // "auto_review"` the daemon creates and locks two threads per fresh TUI: the
+  // conversation and, 0.05-1.1 s later, a prewarmed approvals reviewer
+  // (internal source "guardian"). Only the first gets a rollout, with the
+  // first prompt; the reviewer has none, and no mark the board reads.
+  describe("a fresh TUI whose daemon also loads an auto-review thread", () => {
+    const T = Date.parse("2026-10-20T20:05:00.400Z");
+    const v7 = (ms: number, n: number) => {
+      const h = ms.toString(16).padStart(12, "0");
+      return `${h.slice(0, 8)}-${h.slice(8)}-7000-8000-${String(n).padStart(12, "0")}`;
+    };
+    const daemon = proc(10, DAEMON, "/", 1, T - 600_000);
+    const held = (id: string, at: number): HeldLock => ({ threadId: id, pid: 10, loadedAt: at });
+    // A pair per TUI: the conversation ~1.4 s after the TUI, the reviewer 0.56 s later.
+    const pair = (start: number, n: number) => {
+      const conv = v7(start + 1_370, n);
+      const rev = v7(start + 1_930, n + 1);
+      return { conv, rev, locks: [held(conv, start + 1_370), held(rev, start + 1_930)] };
+    };
+    type Rollouts = Record<string, [cwd: string, lastActivity: number]>;
+    const look = (rollouts: Rollouts) =>
+      [(id: string) => rollouts[id]?.[0], () => true, (id: string) => rollouts[id]?.[1]] as const;
+    const claims = (live: ReturnType<typeof assignLive>) => Object.fromEntries(live.map((l) => [l.threadId, l.pid]));
+
+    it("keeps the first thread through every phase: alone, beside the reviewer, prompted", () => {
+      const tui = proc(20, [BIN], A, 7, T);
+      const { conv, locks } = pair(T, 1);
+      const phases: [HeldLock[], Rollouts][] = [
+        [locks.slice(0, 1), {}],
+        [locks, {}],
+        [locks, { [conv]: [A, T + 15_900] }],
+      ];
+      for (const [ls, rollouts] of phases) {
+        for (const flip of [false, true]) {
+          const live = assignLive(flip ? [...ls].reverse() : ls, flip ? [tui, daemon] : [daemon, tui], ...look(rollouts));
+          expect(live).toEqual([{ threadId: conv, pid: 20, cwd: A, exact: false }]);
+        }
+      }
+    });
+
+    it("two TUIs a few seconds apart in one directory each keep their own first thread", () => {
+      const t1 = proc(20, [BIN], A, 7, T);
+      const t2 = proc(30, [BIN], A, 8, T + 3_000);
+      const p1 = pair(T, 1);
+      const p2 = pair(T + 3_000, 3);
+      const locks = [...p1.locks, ...p2.locks];
+      const want = { [p1.conv]: 20, [p2.conv]: 30 };
+      const cases: Rollouts[] = [
+        {},
+        { [p1.conv]: [A, T + 9_000] },
+        { [p2.conv]: [A, T + 9_000] },
+        { [p1.conv]: [A, T + 9_000], [p2.conv]: [A, T + 8_000] },
+      ];
+      for (const rollouts of cases) {
+        expect(claims(assignLive(locks, [daemon, t1, t2], ...look(rollouts)))).toEqual(want);
+        expect(claims(assignLive([...locks].reverse(), [t2, daemon, t1], ...look(rollouts)))).toEqual(want);
+      }
+      // Before the second TUI's threads exist, it claims none of the first's.
+      expect(claims(assignLive(p1.locks, [daemon, t1, t2], ...look({})))).toEqual({ [p1.conv]: 20 });
+    });
+
+    it("two TUIs started under a second apart: two cards, never a reviewer's", () => {
+      const t1 = proc(20, [BIN], A, 7, T);
+      const t2 = proc(30, [BIN], A, 8, T + 500);
+      const p1 = pair(T, 1);
+      const p2 = pair(T + 500, 3);
+      const live = claims(assignLive([...p1.locks, ...p2.locks], [daemon, t1, t2], ...look({})));
+      // Which TUI shows which is a guess here; that both conversations do, and no reviewer, is not.
+      expect(Object.keys(live).sort()).toEqual([p1.conv, p2.conv].sort());
+      expect(new Set(Object.values(live)).size).toBe(2);
+    });
+
+    it("an older TUI in another directory does not take the new TUI's reviewer", () => {
+      const tb = proc(20, [BIN], B, 7, T - 10_000);
+      const ta = proc(30, [BIN], A, 8, T);
+      const pb = pair(T - 10_000, 1);
+      const pa = pair(T, 3);
+      const locks = [...pb.locks, ...pa.locks];
+      expect(claims(assignLive(locks, [daemon, tb, ta], ...look({})))).toEqual({ [pb.conv]: 20, [pa.conv]: 30 });
+      expect(claims(assignLive(locks, [daemon, tb, ta], ...look({ [pb.conv]: [B, T] })))).toEqual({ [pb.conv]: 20, [pa.conv]: 30 });
+    });
+
+    it("`codex resume` still in its picker claims no rollout-less thread", () => {
+      const picker = proc(20, [BIN, "resume"], A, 7, T - 5_000);
+      const tui = proc(30, [BIN], A, 8, T);
+      const p = pair(T, 1);
+      expect(claims(assignLive(p.locks, [daemon, picker, tui], ...look({})))).toEqual({ [p.conv]: 30 });
+    });
+
+    it("a thread with a rollout wins over a newer one without (e.g. after /new); among several, the newest activity", () => {
+      const tui = proc(20, [BIN], A, 7, T);
+      const first = v7(T + 1_400, 1);
+      const second = v7(T + 60_000, 2);
+      const fresh = v7(T + 120_000, 3);
+      const locks = [held(first, T + 1_400), held(second, T + 60_000), held(fresh, T + 120_000)];
+      expect(claims(assignLive(locks, [daemon, tui], ...look({ [first]: [A, T + 200_000], [second]: [A, T + 100_000] })))).toEqual({ [first]: 20 });
+      expect(claims(assignLive(locks, [daemon, tui], ...look({ [first]: [A, T + 90_000], [second]: [A, T + 100_000] })))).toEqual({ [second]: 20 });
     });
   });
 

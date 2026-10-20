@@ -141,3 +141,33 @@ test("a fresh TUI beside a closed TUI's unprompted thread spawns one card, and k
   expect(board.savedCards().length).toBe(3);
   tui.kill();
 });
+
+// Verified on codex-cli 0.163.0 with `approvals_reviewer = "auto_review"`
+// (docs/design.md "A fresh TUI"): the daemon loads the TUI's conversation and,
+// ~0.5 s later, a reviewer thread; only the conversation gets a rollout, with
+// the first prompt. The board showed the conversation, then the reviewer (the
+// first card went dormant), then the conversation again.
+test("a fresh TUI with auto-review (two threads) spawns one card, which stays live through the first prompt", async ({ page }) => {
+  const dir = "/home/alice/src/review-app";
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(2);
+
+  const { tui, thread, reviewer } = board.codex.freshTui(dir);
+  // The conversation alone.
+  await expect.poll(() => card(thread)?.backgroundColor).toBe(GREY);
+  // Beside the reviewer, for two polls.
+  await expect.poll(() => board.codex.threads.has(reviewer!)).toBe(true);
+  await page.waitForTimeout(4_500);
+  expect(card(thread)?.backgroundColor).toBe(GREY);
+  expect(card(reviewer!)).toBeUndefined();
+
+  // The first prompt writes the conversation's rollout only.
+  board.codex.prompt(thread, "Review the course outline", { busy: true });
+  await expect.poll(() => card(thread)?.backgroundColor).toBe(YELLOW);
+  expect(card(thread)?.label.replace(/\s+/g, " ")).toContain("Review the course outline");
+  await page.waitForTimeout(4_500);
+  expect(card(thread)?.backgroundColor).toBe(YELLOW);
+  expect(card(reviewer!)).toBeUndefined();
+  expect(board.savedCards().length).toBe(3);
+  tui.kill();
+});

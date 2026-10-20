@@ -53,6 +53,14 @@ export interface MockCodexThread extends MockCodexThreadSpec {
   path: string;
 }
 
+export interface MockFreshTui {
+  tui: MockCodexProcess;
+  /** The conversation thread, loaded `threadAfterMs` after the TUI starts (no rollout until `prompt`). */
+  thread: string;
+  /** The auto-review thread loaded `reviewerAfterMs` after it, if any; it never gets a rollout. */
+  reviewer?: string;
+}
+
 export interface MockCodex {
   dir: string;
   /** Live threads are simulated through the synthetic /proc; always possible. */
@@ -65,6 +73,16 @@ export interface MockCodex {
   exit(id: string): void;
   /** A Codex TUI (`codex [args]`) in `cwd`, started now. */
   tui(cwd: string, args?: string[]): MockCodexProcess;
+  /**
+   * A fresh TUI as Codex 0.163.0 runs it (docs/design.md "A fresh TUI"): the
+   * TUI process now, its conversation thread loaded in the daemon
+   * `threadAfterMs` later (default 1400), and, with auto-review on (default),
+   * a second, reviewer thread `reviewerAfterMs` after that (default 560).
+   * Neither has a rollout; `prompt` writes the conversation's.
+   */
+  freshTui(cwd: string, opts?: { reviewer?: boolean; threadAfterMs?: number; reviewerAfterMs?: number }): MockFreshTui;
+  /** The first prompt of a thread with no rollout yet: writes its rollout (a turn running if `busy`). */
+  prompt(id: string, text: string, opts?: { busy?: boolean }): void;
   /** Any other process running Codex's binary, e.g. its sandbox helper. */
   spawn(argv: string[], cwd: string, ppid?: number): MockCodexProcess;
   teardown(): void;
@@ -102,6 +120,33 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
   const handle = (child: ChildProcess): MockCodexProcess => ({ pid: child.pid!, kill: () => child.kill("SIGKILL") });
   let daemon: ChildProcess | undefined;
   const spawned: ChildProcess[] = [];
+  const timers: NodeJS.Timeout[] = [];
+
+  /** session_meta, the first turn and its prompt, from `at` on. */
+  function writeRollout(t: MockCodexThread, [metaAt, startAt, end]: [number, number, number], source: string) {
+    line(t, metaAt, "session_meta", {
+      session_id: t.id,
+      id: t.id,
+      timestamp: iso(metaAt),
+      cwd: t.cwd,
+      originator: "codex-tui",
+      cli_version: "0.0.0-mock",
+      source,
+      thread_source: "user",
+      model_provider: "openai",
+      git: t.branch ? { branch: t.branch } : {},
+    });
+    line(t, startAt, "event_msg", { type: "task_started", turn_id: "turn-1" });
+    if (t.prompt) {
+      line(t, startAt, "event_msg", {
+        type: "item_completed",
+        thread_id: t.id,
+        turn_id: "turn-1",
+        item: { type: "UserMessage", id: "u1", content: [{ type: "text", text: t.prompt, text_elements: [] }] },
+      });
+    }
+    if (!t.busy) line(t, end, "event_msg", { type: "task_complete", turn_id: "turn-1", last_agent_message: "(synthetic)" });
+  }
 
   function start(t: MockCodexThread) {
     writeFileSync(lockPath(t), "");
@@ -142,28 +187,7 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
         if (t.live !== false) start(t);
         return t;
       }
-      line(t, at - 60_000, "session_meta", {
-        session_id: t.id,
-        id: t.id,
-        timestamp: iso(at - 60_000),
-        cwd: t.cwd,
-        originator: "codex-tui",
-        cli_version: "0.0.0-mock",
-        source: "cli",
-        thread_source: "user",
-        model_provider: "openai",
-        git: t.branch ? { branch: t.branch } : {},
-      });
-      line(t, at - 50_000, "event_msg", { type: "task_started", turn_id: "turn-1" });
-      if (t.prompt) {
-        line(t, at - 50_000, "event_msg", {
-          type: "item_completed",
-          thread_id: t.id,
-          turn_id: "turn-1",
-          item: { type: "UserMessage", id: "u1", content: [{ type: "text", text: t.prompt, text_elements: [] }] },
-        });
-      }
-      if (!t.busy) line(t, at, "event_msg", { type: "task_complete", turn_id: "turn-1", last_agent_message: "(synthetic)" });
+      writeRollout(t, [at - 60_000, at - 50_000, at], "cli");
       if (t.name) {
         appendFileSync(join(dir, "session_index.jsonl"), `${JSON.stringify({ id: t.id, thread_name: t.name, updated_at: iso(at) })}\n`);
       }
@@ -189,12 +213,31 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
       spawned.push(c);
       return handle(c);
     },
+    freshTui(cwd, { reviewer = true, threadAfterMs = 1_400, reviewerAfterMs = 560 } = {}) {
+      const tui = this.tui(cwd);
+      const now = Date.now();
+      const thread = mockThreadId(now + threadAfterMs);
+      const rev = reviewer ? mockThreadId(now + threadAfterMs + reviewerAfterMs) : undefined;
+      // Both are held by the daemon with no rollout; the reviewer's cwd is never written anywhere.
+      timers.push(setTimeout(() => this.add({ id: thread, cwd, rollout: false, holder: "daemon" }), threadAfterMs));
+      if (rev) timers.push(setTimeout(() => this.add({ id: rev, cwd, rollout: false, holder: "daemon" }), threadAfterMs + reviewerAfterMs));
+      return { tui, thread, ...(rev ? { reviewer: rev } : {}) };
+    },
+    prompt(id, text, { busy = false } = {}) {
+      const t = get(id);
+      if (t.rollout !== false) throw new Error("this mock thread already has a rollout");
+      Object.assign(t, { rollout: true, prompt: text, busy });
+      // The TUI talks to the daemon as an app-server client: source "vscode" (verified on 0.163.0).
+      const now = Date.now();
+      writeRollout(t, [now, now, now], "vscode");
+    },
     spawn(argv, cwd, ppid) {
       const c = dummy(argv, cwd, ppid);
       spawned.push(c);
       return handle(c);
     },
     teardown() {
+      for (const timer of timers) clearTimeout(timer);
       for (const t of threads.values()) t.process?.kill("SIGKILL");
       daemon?.kill("SIGKILL");
       for (const p of spawned) p.kill("SIGKILL");
