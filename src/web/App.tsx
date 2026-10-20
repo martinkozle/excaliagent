@@ -21,6 +21,7 @@ import type { Session } from "../shared/types.ts";
 import { api } from "./api.ts";
 import {
   cardAt,
+  logoAt,
   cardSessionIds,
   filesToUpload,
   idsToLookup,
@@ -78,6 +79,13 @@ const CHARACTERS = "excaliagent-characters";
 const PLACEHOLDER = emojiFileId("❔");
 const SAVE_DEBOUNCE_MS = 500;
 const TICK_MS = 30_000;
+/** A logo click: press and release at most this far apart (CSS px). */
+const CLICK_SLOP_PX = 4;
+/**
+ * The logo's clickable area reaches this far beyond it (CSS px, the same on
+ * screen at every zoom; logoAt keeps it inside the card).
+ */
+const LOGO_HIT_PAD_PX = 6;
 const measure = canvasMeasure();
 
 // Fonts are split into unicode-range faces; load the ones card text actually uses.
@@ -454,20 +462,91 @@ export function App() {
       const lane = laneTargetAt(elements, x, y);
       return lane ? { kind: "lane", laneId: lane.id } : undefined;
     };
+    const jump = (sessionId: string) => void openSession(excalidraw, sessionId, sessionFor(sessionId));
+    // One jump per gesture, counted by the browser (the click's `detail`), never
+    // by a clock: a slow machine or a slow double-click must not open a session
+    // twice (two resumes would start two agents on one conversation). This is
+    // the session the first click of the current multi-click jumped to, if any.
+    let gestureJumped: string | null = null;
     const onDblClick = (event: MouseEvent) => {
       const target = targetUnder(event);
       if (target?.kind !== "card") return;
       event.stopPropagation();
       event.preventDefault();
-      void openSession(excalidraw, target.sessionId, sessionFor(target.sessionId));
+      // A double-click on the logo: its first click already jumped.
+      const jumped = gestureJumped;
+      gestureJumped = null;
+      if (jumped !== target.sessionId) jump(target.sessionId);
     };
     // Do not preventDefault: Excalidraw still opens its own menu; ours glues onto it.
     const onContextMenu = (event: MouseEvent) => setMenuFor(targetUnder(event) ?? null);
+
+    // A click on a card's harness logo jumps like a double-click. Excalidraw
+    // still gets every pointer event (it selects the card; a press that moves
+    // drags it as usual): only a press and release on the same logo without
+    // moving counts as a click. While the pointer rests on a logo, a class on
+    // the wrapper turns the canvas cursor into a pointer (see index.html).
+    const logoUnder = (clientX: number, clientY: number): string | undefined => {
+      const appState = excalidraw.getAppState() as AppState;
+      if (appState.activeTool.type !== "selection" || appState.editingTextElement) return undefined;
+      const { x, y } = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+      return logoAt(excalidraw.getSceneElements(), x, y, LOGO_HIT_PAD_PX / appState.zoom.value);
+    };
+    type Selection = Pick<AppState, "selectedElementIds" | "selectedGroupIds">;
+    type Press = { sessionId: string; x: number; y: number; selection: Selection };
+    let press: Press | null = null;
+    /** A press and release on one logo, waiting for its click event. */
+    let released: Press | null = null;
+    const onPointerMove = (event: PointerEvent) => {
+      if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_SLOP_PX) press = null;
+      const hover = event.buttons === 0 && event.target instanceof HTMLCanvasElement && !!logoUnder(event.clientX, event.clientY);
+      el.classList.toggle("excaliagent-logo-hover", hover);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      press = null;
+      released = null;
+      const plain = event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (!plain || !(event.target instanceof HTMLCanvasElement)) return;
+      const sessionId = logoUnder(event.clientX, event.clientY);
+      if (!sessionId) return;
+      // Excalidraw selects the card on this press; a click puts this selection back.
+      const { selectedElementIds, selectedGroupIds } = excalidraw.getAppState() as AppState;
+      press = { sessionId, x: event.clientX, y: event.clientY, selection: { selectedElementIds, selectedGroupIds } };
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      const p = press;
+      press = null;
+      if (!p || event.button !== 0 || Math.hypot(event.clientX - p.x, event.clientY - p.y) > CLICK_SLOP_PX) return;
+      if (logoUnder(event.clientX, event.clientY) !== p.sessionId) return;
+      released = p;
+    };
+    // The click event comes after Excalidraw has handled the pointerup (and
+    // selected the card), so the selection is put back right here, in the same
+    // task, not on a later frame; not an undo step.
+    const onClick = (event: MouseEvent) => {
+      const r = released;
+      released = null;
+      if (event.detail <= 1) gestureJumped = null;
+      if (!r) return;
+      excalidraw.updateScene({ appState: r.selection, captureUpdate: CaptureUpdateAction.NEVER });
+      if (event.detail > 1) return; // a later click of a double-click: the first one jumped
+      gestureJumped = r.sessionId;
+      jump(r.sessionId);
+    };
     el.addEventListener("dblclick", onDblClick, true);
     el.addEventListener("contextmenu", onContextMenu, true);
+    el.addEventListener("pointermove", onPointerMove, true);
+    el.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("pointerup", onPointerUp, true);
+    el.addEventListener("click", onClick, true);
     return () => {
       el.removeEventListener("dblclick", onDblClick, true);
       el.removeEventListener("contextmenu", onContextMenu, true);
+      el.removeEventListener("pointermove", onPointerMove, true);
+      el.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      el.removeEventListener("click", onClick, true);
+      el.classList.remove("excaliagent-logo-hover");
     };
   }, [excalidraw, sessionFor]);
 

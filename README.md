@@ -94,7 +94,8 @@ bookmark. Running it again while a board is up just opens that board.
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
   Sway, macOS). A dormant session is resumed (`claude --resume <id>`,
   `codex resume <id>`) in a new herdr tab, in the workspace for that repo. Without herdr, the resume command is
-  copied instead.
+  copied instead. A single click on the harness logo in the card's corner
+  does the same.
 - **Right-click a card** for an excaliagent section on top of the Excalidraw
   menu: focus or resume, copy the resume command (with or without `cd`), open
   the PR, or stop a running session (asks first; the conversation is kept and

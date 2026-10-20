@@ -86,6 +86,10 @@ several Claude Code, Codex or OpenCode sessions, with or without herdr.
 
 - Double-clicking a live card focuses its herdr pane and raises the terminal
   window (Hyprland, Sway).
+- A single click on the harness logo (top right of the card) does the same
+  as double-clicking the card, live or dormant; the cursor turns into a
+  pointer over the logo (and a few pixels around it). A click leaves the
+  selection as it was; dragging a card by its logo still just moves it.
 - Without herdr the card says "not in herdr" and the gesture explains why.
 - The link survives pane splits, tab moves, renames and herdr reconnects.
 
