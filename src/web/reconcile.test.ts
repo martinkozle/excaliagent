@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ExcalidrawElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
+import type { ExcalidrawElement, ExcalidrawImageElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
 import { reconcile } from "./reconcile.ts";
-import { CARD_H, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
+import { CARD_H, CARD_W, LOGO_SIZE, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
+import { LOGOS } from "./logos.ts";
 import { DAY, NOW, session, testGen } from "./__fixtures__/helpers.ts";
 import userDrawingsJson from "./__fixtures__/user-drawings.json" with { type: "json" };
 import legacyCardJson from "./__fixtures__/legacy-card.json" with { type: "json" };
@@ -15,7 +16,7 @@ const live = (els: readonly ExcalidrawElement[]) => els.filter((e) => !e.isDelet
 const cardsOf = (els: readonly ExcalidrawElement[], sessionId?: string) =>
   live(els).filter((e) => kind(e) === "card" && (!sessionId || e.customData!.excaliagent.sessionId === sessionId));
 const inboxOf = (els: readonly ExcalidrawElement[]) => live(els).find((e) => kind(e) === "inbox");
-const partOf = (els: readonly ExcalidrawElement[], rect: ExcalidrawElement, k: "card-title" | "card-details") => {
+const partOf = (els: readonly ExcalidrawElement[], rect: ExcalidrawElement, k: "card-title" | "card-details" | "card-logo") => {
   const found = live(els).filter((e) => kind(e) === k && e.customData!.excaliagent.cardId === rect.id);
   expect(found).toHaveLength(1);
   return found[0] as ExcalidrawTextElement;
@@ -429,7 +430,7 @@ describe("reconcile: continued-in", () => {
     const r = reconcile(sessions, a.elements, NOW, gen);
     expect(r.spawned).toEqual([]);
     expect(r.retargeted).toEqual([{ from: "A", to: "B" }]);
-    expect(sessionIdsOf(r.elements, rect.id)).toEqual(["B", "B", "B"]);
+    expect(sessionIdsOf(r.elements, rect.id)).toEqual(["B", "B", "B", "B"]); // rect, title, details, logo
     expect(cardsOf(r.elements)).toHaveLength(1);
     const card = cardsOf(r.elements, "B")[0]!;
     expect([card.x, card.y]).toEqual([rect.x, rect.y]);
@@ -484,5 +485,53 @@ describe("reconcile: continued-in chain with a carded hop", () => {
     expect(r.retargeted).toEqual([{ from: "B", to: "C" }]);
     const ids = r.elements.filter((e) => !e.isDeleted && e.customData?.excaliagent?.kind === "card").map((e) => e.customData!.excaliagent.sessionId);
     expect(ids.sort()).toEqual(["A", "C"]);
+  });
+});
+
+describe("reconcile: harness logo", () => {
+  const logoOf = (els: readonly ExcalidrawElement[], rect: ExcalidrawElement) =>
+    partOf(els, rect, "card-logo") as unknown as ExcalidrawImageElement;
+
+  it("a new card carries its logo; a card from before logos gets one at its rect's current corner", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen);
+    const card0 = cardsOf(a.elements)[0]!;
+    expect(logoOf(a.elements, card0).fileId).toBe(LOGOS.claude.fileId);
+
+    // A 0.2.0 card: no logo, moved and widened by the user.
+    const noLogo = a.elements.filter((e) => kind(e) !== "card-logo");
+    const moved = moveGroup(noLogo, card0.groupIds[0]!, 100, 50).map((e) =>
+      e.id === card0.id ? { ...e, width: CARD_W + 60 } : e,
+    );
+    const card = moved.find((e) => e.id === card0.id)!;
+    const r = reconcile([session()], moved, NOW, gen);
+    expect(r.patched).toEqual(["s1"]);
+    const logo = logoOf(r.elements, card);
+    expect([logo.x, logo.y]).toEqual([card.x + card.width - PAD - LOGO_SIZE, card.y + PAD + (TITLE_H - LOGO_SIZE) / 2]);
+    expect(logo.groupIds).toEqual(card.groupIds);
+    // Never resized or moved the user's rect.
+    expect(r.elements.find((e) => e.id === card.id)).toMatchObject({ x: card.x, y: card.y, width: card.width });
+    expect(reconcile([session()], r.elements, NOW, gen).changed).toBe(false);
+  });
+
+  it("a moved logo stays where the user put it; a deleted one is recreated", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen);
+    const card = cardsOf(a.elements)[0]!;
+    const logo0 = logoOf(a.elements, card);
+    const nudged = a.elements.map((e) => (e.id === logo0.id ? { ...e, x: e.x - 30, version: e.version + 1 } : e));
+    expect(reconcile([session()], nudged, NOW, gen).changed).toBe(false);
+    const deleted = a.elements.map((e) => (e.id === logo0.id ? { ...e, isDeleted: true } : e));
+    const r = reconcile([session()], deleted, NOW, gen);
+    expect(logoOf(r.elements, card).id).not.toBe(logo0.id);
+  });
+
+  it("follows the card when it is retargeted to a continuation", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" })], [], NOW, gen);
+    const r = reconcile([session({ id: "A", live: false, status: "dormant", continuedIn: "B" }), session({ id: "B" })], a.elements, NOW, gen);
+    const [card] = cardsOf(r.elements, "B");
+    expect(logoOf(r.elements, card!).customData!.excaliagent.sessionId).toBe("B");
+    expect(live(r.elements).filter((e) => kind(e) === "card-logo")).toHaveLength(1);
   });
 });

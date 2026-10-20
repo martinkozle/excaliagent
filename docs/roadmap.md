@@ -51,5 +51,7 @@ One-time setup:
 - **Picker scope**: all projects (today) or only projects with a live session.
 - **`continued-in` merges**: if the continued session already has a card, both
   cards stay. Merge them?
+- **Stored images are never deleted**: `files/` keeps the data of images
+  removed from the board. Prune unreferenced files on startup?
 - **Label churn**: ages and cache minutes change every minute, so active cards
   are patched (and the scene saved) about once a minute. Acceptable so far.

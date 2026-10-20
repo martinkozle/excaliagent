@@ -20,8 +20,13 @@ import {
   DETAIL_SIZE,
   DETAIL_LH,
   TITLE_LH,
+  TITLE_H,
+  TITLE_W,
+  LOGO_SIZE,
+  makeCardLogo,
 } from "./cards.ts";
 import { DAY, HOUR, MIN, NOW, session, testGen } from "./__fixtures__/helpers.ts";
+import { LOGOS } from "./logos.ts";
 
 describe("statusStyle", () => {
   const cases: Array<[string, Parameters<typeof statusStyle>[0], string, string, string]> = [
@@ -71,7 +76,7 @@ describe("titleText", () => {
 
   it("word-wraps to a second line", () => {
     expect(titleText(session({ title: "Node.js first slices setup on NixOS" }), mono)).toBe(
-      "Node.js first slices setup\non NixOS",
+      "Node.js first slices\nsetup on NixOS",
     );
   });
 
@@ -79,15 +84,15 @@ describe("titleText", () => {
     const t = titleText(session({ title: "one two three four five six seven eight nine ten eleven twelve thirteen" }), mono);
     const [l1, l2, l3] = t.split("\n");
     expect(l3).toBeUndefined();
-    expect(l1).toBe("one two three four five six");
+    expect(l1).toBe("one two three four five");
     expect(l2!.endsWith("…")).toBe(true);
-    expect(mono(l2!, 5, 20)).toBeLessThanOrEqual(INNER_W);
-    expect(l2!.startsWith("seven eight")).toBe(true);
+    expect(mono(l2!, 5, 20)).toBeLessThanOrEqual(TITLE_W);
+    expect(l2!.startsWith("six seven")).toBe(true);
   });
 
-  it("breaks a long single word by characters", () => {
-    expect(titleText(session({ title: "x".repeat(40) }), mono)).toBe(`${"x".repeat(27)}\n${"x".repeat(13)}`);
-    expect(titleText(session({ title: `ab ${"y".repeat(30)}` }), mono)).toBe(`ab\n${"y".repeat(26)}…`);
+  it("breaks a long single word by characters (24 chars fit beside the logo)", () => {
+    expect(titleText(session({ title: "x".repeat(40) }), mono)).toBe(`${"x".repeat(24)}\n${"x".repeat(16)}`);
+    expect(titleText(session({ title: `ab ${"y".repeat(30)}` }), mono)).toBe(`ab\n${"y".repeat(23)}…`);
   });
 
   it("collapses whitespace and newlines", () => {
@@ -97,7 +102,7 @@ describe("titleText", () => {
   it("the default measurer is used when none is given and keeps lines within the width", () => {
     const t = titleText(session({ title: "A very long title ".repeat(10) }));
     expect(t.split("\n")).toHaveLength(2);
-    for (const l of t.split("\n")) expect(estimateMeasure(l, 5, TITLE_SIZE)).toBeLessThanOrEqual(INNER_W);
+    for (const l of t.split("\n")) expect(estimateMeasure(l, 5, TITLE_SIZE)).toBeLessThanOrEqual(TITLE_W);
   });
 });
 
@@ -258,5 +263,39 @@ describe("shortPr / prLink", () => {
     const [rect] = makeCard(session({ prLinks: ["https://github.com/a/b/pull/3"] }), { x: 0, y: 0 }, testGen(), NOW);
     expect(rect.link).toBe("https://github.com/a/b/pull/3");
     expect(makeCard(session(), { x: 0, y: 0 }, testGen(), NOW)[0].link).toBeNull();
+  });
+});
+
+describe("harness logo", () => {
+  it("makeCard adds the source's logo in the rect's top-right corner, in the card's group", () => {
+    const [rect, title, , logo] = makeCard(session(), { x: 60, y: 100 }, testGen(), NOW);
+    expect(logo).toMatchObject({
+      type: "image",
+      fileId: LOGOS.claude.fileId,
+      status: "saved",
+      scale: [1, 1],
+      crop: null,
+      x: 60 + CARD_W - PAD - LOGO_SIZE,
+      y: 100 + PAD + (TITLE_H - LOGO_SIZE) / 2,
+      width: LOGO_SIZE,
+      height: LOGO_SIZE,
+      groupIds: rect.groupIds,
+      customData: { excaliagent: { kind: "card-logo", sessionId: "s1", cardId: rect.id } },
+    });
+    // The title wraps short of the logo.
+    expect(title.x + TITLE_W).toBeLessThan(logo!.x);
+  });
+
+  it("makeCardLogo follows a resized rect's right edge, and is undefined for a source without a logo", () => {
+    const rect = { id: "r", x: 10, y: 20, width: 400, groupIds: ["g"] };
+    expect(makeCardLogo(rect, "s1", "claude", testGen(), NOW)!.x).toBe(10 + 400 - PAD - LOGO_SIZE);
+    expect(makeCardLogo(rect, "s1", "other" as "claude", testGen(), NOW)).toBeUndefined();
+  });
+
+  it("titles wrap to the narrower width beside the logo", () => {
+    const m: Measure = (t) => t.length * 10;
+    const t = titleText(session({ title: "x".repeat(25) }), m); // 250px: fits INNER_W, not TITLE_W
+    expect(INNER_W).toBeGreaterThanOrEqual(250);
+    expect(t.split("\n")).toHaveLength(2);
   });
 });

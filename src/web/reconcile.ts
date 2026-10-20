@@ -9,6 +9,9 @@
 //   They move with the card's group; the one exception: when the title's wrapped
 //   line count changes, the details text is re-placed below it, relative to the
 //   rect's current x/y (it is an app-owned element inside the card's group).
+// - logo (image): never patched; only customData.cardId after a copy-paste. A
+//   card without one (deleted, or made before logos) gets it at its rect's
+//   current top-right corner.
 // Lanes ({kind:"lane"}) are created with a new board's inbox and never touched.
 // A card whose session is absent from `sessions` is restyled dormant; its texts
 // and link are left alone (nothing to regenerate them from).
@@ -17,7 +20,11 @@
 // to X (customData.sessionId on the rect and its texts) before spawning, unless
 // X already has a card (then the old card stays as it is). Chains A→B→C resolve
 // in one pass (stopping at a hop that already has a card).
-import type { ExcalidrawElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
+import type {
+  ExcalidrawElement,
+  ExcalidrawImageElement,
+  ExcalidrawTextElement,
+} from "@excalidraw/excalidraw/element/types";
 import type { Session } from "../shared/types.ts";
 import {
   CARD_H,
@@ -32,6 +39,7 @@ import {
   type Measure,
   isInbox,
   makeCard,
+  makeCardLogo,
   makeCardPart,
   makeInbox,
   partBox,
@@ -140,7 +148,9 @@ export function reconcile(
   };
 }
 
-const PARTS: CardPartKind[] = ["card-title", "card-details"];
+const PARTS: CardPartKind[] = ["card-title", "card-details", "card-logo"];
+
+type Part = ExcalidrawTextElement | ExcalidrawImageElement;
 
 function reconcileCards(
   sessions: readonly Session[],
@@ -167,10 +177,10 @@ function reconcileCards(
   // --- index cards and their parts -------------------------------------------
   const rects = elements.filter((e) => !e.isDeleted && cardMeta(e));
   const rectById = new Map(rects.map((r) => [r.id, r]));
-  const parts = elements.filter((e): e is ExcalidrawTextElement => !e.isDeleted && !!cardPartMeta(e));
-  const assigned = new Map<string, ExcalidrawTextElement>(); // `${rectId}|${kind}`
-  const owner = new Map<string, string>(); // text id → rect id
-  const assign = (t: ExcalidrawTextElement, r: ExcalidrawElement) => {
+  const parts = elements.filter((e): e is Part => !e.isDeleted && !!cardPartMeta(e));
+  const assigned = new Map<string, Part>(); // `${rectId}|${kind}`
+  const owner = new Map<string, string>(); // part id → rect id
+  const assign = (t: Part, r: ExcalidrawElement) => {
     const key = `${r.id}|${cardPartMeta(t)!.kind}`;
     if (assigned.has(key) || owner.has(t.id)) return false;
     assigned.set(key, t);
@@ -233,7 +243,23 @@ function reconcileCards(
     let titleLines = 1;
     let titleLinesChanged = false;
     for (const kind of PARTS) {
-      const t = assigned.get(`${rect.id}|${kind}`);
+      const part = assigned.get(`${rect.id}|${kind}`);
+      if (kind === "card-logo") {
+        if (part) {
+          const m = cardPartMeta(part)!;
+          if (m.cardId === rect.id) continue;
+          put(bump(part, { customData: { ...part.customData, excaliagent: { ...m, cardId: rect.id } } }));
+        } else {
+          const made = makeCardLogo(rect, meta.sessionId, meta.source, gen, now);
+          if (!made) continue;
+          const at = indexOf.get(rect.id)!;
+          inserts.set(at, [...(inserts.get(at) ?? []), made]);
+          touched.push(made.id);
+        }
+        cardTouched = true;
+        continue;
+      }
+      const t = part as ExcalidrawTextElement | undefined;
       const want = s ? (kind === "card-title" ? titleText(s, measure) : detailsText(s, now, measure)) : undefined;
       if (t) {
         const changes: { -readonly [K in keyof ExcalidrawTextElement]?: ExcalidrawTextElement[K] } = {};

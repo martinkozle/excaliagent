@@ -33,9 +33,9 @@
                 nodejs_24
                 git
               ]
-              ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.chromium ];
+              ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.chromium ];
             }
-            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+            // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
               # Playwright e2e tests use the Nix chromium instead of downloading one.
               PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "${pkgs.chromium}/bin/chromium";
               PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";

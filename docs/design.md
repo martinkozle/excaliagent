@@ -223,17 +223,24 @@ registry plus file watching is enough, and "no setup" is a goal.
 
 ### Cards
 
-A card is three app-owned elements in one app group (group id first in
+A card is four app-owned elements in one app group (group id first in
 `groupIds`, i.e. innermost):
 
 - **rect** — `customData.excaliagent = {kind:"card", source, sessionId}`, 300 wide,
   sized for 2 title lines + 5 detail lines, `fillStyle: "solid"` always,
   `link` = last PR URL (Excalidraw shows its link icon).
-- **title** — Excalifont (5) 20 px, `#1e1e1e`, word-wrapped to 2 lines, the second
-  cut with "…". `{kind:"card-title", sessionId, cardId}`.
+- **title** — Excalifont (5) 20 px, `#1e1e1e`, word-wrapped to 2 lines of
+  `TITLE_W` (short of the logo), the second cut with "…".
+  `{kind:"card-title", sessionId, cardId}`.
 - **details** — Nunito (6) 14 px, `#495057`: `repo · branch` / `status: waitingFor ·
   age` / `cache warm 41m` | `cache cold` / `herdr: ws › tab` | `not in herdr` /
   `PR #12`. Empty lines dropped. `{kind:"card-details", sessionId, cardId}`.
+- **logo** — an image element, 20 px, in the rect's top-right corner, centred
+  on the first title line: the harness mark (`src/web/logos.ts`; Claude's from
+  simple-icons, CC0). `{kind:"card-logo", sessionId, cardId}`. Its file
+  (`excaliagent-logo-<source>`, an SVG data URL) is a constant handed to
+  Excalidraw on load and never stored, so the mark can change between releases.
+  A source without a logo gets none.
 
 Texts are not bound to the rect: Excalidraw allows one bound text and one font
 size per text element. Widths are measured with a canvas in the browser (an
@@ -290,9 +297,11 @@ the same array.
 - Card whose session is unknown → restyled dormant; texts and link left alone.
 - `continuedIn = X` → the card is retargeted to X (rect and texts' `sessionId`)
   before spawning, following chains, unless a hop already has a card.
-- Missing title/details (user deleted one) → recreated at the rect. Texts whose
-  rect is gone → soft-deleted. Copy-pasted cards keep their own texts (matched
-  by group first).
+- Missing title/details/logo (user deleted one, or a card from before logos)
+  → recreated at the rect's current position (the logo at its current right
+  edge). Parts whose rect is gone → soft-deleted. Copy-pasted cards keep their
+  own parts (matched by group first). The logo is never patched or moved after
+  that.
 - **Migration** of old cards (rect + bound 5-line label): the bound text is
   soft-deleted, a fresh group id is prepended to the rect's `groupIds`, the
   rect grows to the new height if shorter, and title/details are created at the
@@ -332,6 +341,14 @@ elements plus `viewBackgroundColor`), and immediately after reconcile patches.
 unreadable file is moved aside as `scene.json.corrupt-<ts>` and the board starts
 empty.
 
+Pasted images: Excalidraw keeps image data (`BinaryFiles`) apart from the
+elements, so the scene only holds the image element. Each image file the board
+shows and the server lacks goes up once with `PUT /api/files` and is stored
+as `files/<id>.json` next to `scene.json` (Excalidraw file ids are content
+hashes, so a stored id is never rewritten). On load the frontend fetches the
+files its image elements reference. Logo files are excluded. Files are never
+deleted yet (see roadmap open questions).
+
 ## HTTP API
 
 All routes need the token cookie and a loopback `Host`; non-GET requests with a
@@ -345,6 +362,8 @@ foreign `Origin` are refused and must be `application/json`.
 | `GET /api/picker` | dormant, non-superseded sessions |
 | `POST /api/lookup {ids}` | sessions by id, live or dormant |
 | `GET`/`PUT /api/scene` | `{elements, appState}` |
+| `PUT /api/files {files}` | 204 · 400 unless every file has an id matching `^[A-Za-z0-9_-]{1,128}$`, an `image/*` mimeType and a `data:` URL of that type |
+| `POST /api/files/get {ids}` | the stored files among `ids` |
 | `POST /api/focus {sessionId}` | 204 · 409 `no pane` |
 | `POST /api/resume {sessionId}` | 204 · 400 bad id · 404 unknown · 409 `live` / `no herdr` |
 

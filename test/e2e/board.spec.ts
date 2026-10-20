@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { seedDemo } from "../mock-claude.ts";
 import { startBoard, type Board } from "./board.ts";
@@ -136,6 +138,59 @@ test("layout survives a page reload and a server restart without duplicates", as
   await page.waitForTimeout(1500);
   expect(board.savedCards()).toHaveLength(5);
   expect(card(ID.idleWarm)).toMatchObject({ x: -600, y: 300 });
+});
+
+test("every card carries the Claude logo, from built-in files that are never stored", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  const logos = await page.evaluate(() => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const els = excalidraw.getSceneElements();
+    const logos = els.filter((e: any) => e.customData?.excaliagent?.kind === "card-logo");
+    const files = excalidraw.getFiles();
+    return {
+      count: logos.length,
+      inCardGroups: logos.every((l: any) =>
+        els.some((r: any) => r.customData?.excaliagent?.kind === "card" && r.groupIds[0] === l.groupIds[0]),
+      ),
+      loaded: logos.every((l: any) => files[l.fileId]?.dataURL?.startsWith("data:image/svg+xml")),
+    };
+  });
+  expect(logos).toEqual({ count: 5, inCardGroups: true, loaded: true });
+  expect(existsSync(join(board.stateDir, "files"))).toBe(false);
+});
+
+test("a pasted image survives a page reload and a server restart", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(5);
+  // A 1×1 PNG, added the way a paste adds it: file data plus an image element.
+  const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  await page.evaluate((dataURL) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    excalidraw.addFiles([{ id: "e2epastedimage", mimeType: "image/png", dataURL, created: 1 }]);
+    const els = excalidraw.getSceneElementsIncludingDeleted();
+    const logo = els.find((e: any) => e.customData?.excaliagent?.kind === "card-logo");
+    const pasted = { ...logo, id: "pasted1", fileId: "e2epastedimage", groupIds: [], customData: undefined, x: -400, y: 0, width: 80, height: 80 };
+    excalidraw.updateScene({ elements: [...els, pasted], captureUpdate: "IMMEDIATELY" });
+  }, PNG);
+  await expect.poll(() => existsSync(join(board.stateDir, "files", "e2epastedimage.json"))).toBe(true);
+  const savedScene = () => readFileSync(join(board.stateDir, "scene.json"), "utf8");
+  await expect.poll(() => savedScene().includes('"pasted1"')).toBe(true);
+  expect(savedScene()).not.toContain("base64"); // image data lives in files/, not in the scene
+
+  const imageAfterLoad = () =>
+    page.evaluate(() => {
+      const { excalidraw } = (window as any).__excaliagent;
+      const el = excalidraw.getSceneElements().find((e: any) => e.id === "pasted1");
+      return el ? excalidraw.getFiles()[el.fileId]?.dataURL ?? "missing" : "no element";
+    });
+  await page.reload();
+  await expect(page.locator(".excalidraw")).toBeVisible();
+  await expect.poll(imageAfterLoad).toBe(PNG);
+
+  await board.restart();
+  await open(page);
+  await expect.poll(imageAfterLoad).toBe(PNG);
 });
 
 test("a deleted card of a live session respawns", async ({ page }) => {

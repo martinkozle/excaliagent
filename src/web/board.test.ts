@@ -12,6 +12,8 @@ import {
   resumeCommand,
   resumeCommandPlain,
   saveHash,
+  filesToUpload,
+  imageFileIds,
 } from "./board.ts";
 import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
 
@@ -145,5 +147,30 @@ describe("menuPlacement", () => {
       const overlapX = p.left < m.right && m.left < p.left + p.width;
       expect(overlapX).toBe(false);
     }
+  });
+});
+
+describe("image files", () => {
+  const img = (id: string, fileId: string | null, isDeleted = false) =>
+    ({ id, type: "image", fileId, isDeleted }) as unknown as ExcalidrawElement;
+  const file = (id: string) => ({ id, mimeType: "image/png", dataURL: `data:image/png;base64,${id}`, created: 1 });
+  const elements = [
+    img("e1", "shot"),
+    img("e2", "logo"),
+    img("e3", "gone", true),
+    img("e4", null),
+    img("e5", "shot"),
+    { id: "r", type: "rectangle", isDeleted: false } as unknown as ExcalidrawElement,
+  ];
+
+  it("imageFileIds lists the files of live image elements once", () => {
+    expect(imageFileIds(elements)).toEqual(["shot", "logo"]);
+  });
+
+  it("filesToUpload: files on the board not yet stored, never built-in ones, only when loaded", () => {
+    const files = { shot: file("shot"), logo: file("logo"), gone: file("gone") } as never;
+    expect(filesToUpload(elements, files, new Set(), new Set(["logo"]))).toEqual([file("shot")]);
+    expect(filesToUpload(elements, files, new Set(["shot"]), new Set(["logo"]))).toEqual([]);
+    expect(filesToUpload(elements, {} as never, new Set(), new Set())).toEqual([]);
   });
 });

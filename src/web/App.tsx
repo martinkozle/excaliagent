@@ -8,13 +8,21 @@ import {
   viewportCoordsToSceneCoords,
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState, ExcalidrawImperativeAPI, ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
+import type {
+  AppState,
+  BinaryFileData,
+  BinaryFiles,
+  ExcalidrawImperativeAPI,
+  ExcalidrawInitialDataState,
+} from "@excalidraw/excalidraw/types";
 import type { Session } from "../shared/types.ts";
 import { api } from "./api.ts";
 import {
   cardAt,
   cardSessionIds,
+  filesToUpload,
   idsToLookup,
+  imageFileIds,
   menuItems,
   mergeSessions,
   resumeCommand,
@@ -25,6 +33,7 @@ import { CardMenu } from "./CardMenu.tsx";
 import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
+import { LOGOS, logoFiles } from "./logos.ts";
 import { appendLanes } from "./lanes.ts";
 
 // Serve Excalidraw's local fonts from our own server; missing fonts (Xiaolai CJK) fall back to CDN.
@@ -46,6 +55,11 @@ function fontsReady(): Promise<unknown> {
 
 type Elements = readonly ExcalidrawElement[];
 
+/** Logo images are part of the app: handed to Excalidraw on load, never stored. */
+const BUILT_IN_FILES: ReadonlySet<string> = new Set(Object.values(LOGOS).map((l) => l.fileId));
+
+const byId = (files: BinaryFileData[]): BinaryFiles => Object.fromEntries(files.map((f) => [f.id, f]));
+
 export function App() {
   const [initialData, setInitialData] = useState<ExcalidrawInitialDataState | null>(null);
   const [excalidraw, setExcalidraw] = useState<ExcalidrawImperativeAPI | null>(null);
@@ -59,25 +73,45 @@ export function App() {
   const known = useRef(new Map<string, Session>());
   const asked = useRef(new Set<string>());
   const lastSaved = useRef("");
+  /** Image file ids the server has (or is being sent). */
+  const storedFiles = useRef(new Set<string>());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     api
       .loadScene()
-      .then((scene) => {
+      .then(async (scene) => {
         const elements = restoreElements(scene.elements as ExcalidrawElement[], null);
         lastSaved.current = saveHash(elements.filter((e) => !e.isDeleted));
+        const ids = imageFileIds(elements).filter((id) => !BUILT_IN_FILES.has(id));
+        const files = await api.loadFiles(ids).catch((err: unknown) => {
+          console.error("excaliagent: could not load images", err);
+          return [];
+        });
+        for (const f of files) storedFiles.current.add(f.id);
         const bg = scene.appState.viewBackgroundColor;
         setInitialData({
           elements,
           appState: typeof bg === "string" ? { viewBackgroundColor: bg } : {},
+          files: byId([...logoFiles(Date.now()), ...files]),
           scrollToContent: true,
         });
       })
       .catch((err: unknown) => {
         console.error("excaliagent: could not load scene", err);
-        setInitialData({ elements: [] });
+        setInitialData({ elements: [], files: byId(logoFiles(Date.now())) });
       });
+  }, []);
+
+  /** Pasted images: their data lives apart from the elements, stored once per file. */
+  const uploadFiles = useCallback((elements: Elements, files: BinaryFiles) => {
+    const pending = filesToUpload(elements, files, storedFiles.current, BUILT_IN_FILES);
+    if (!pending.length) return;
+    for (const f of pending) storedFiles.current.add(f.id);
+    api.saveFiles(pending).catch((err: unknown) => {
+      for (const f of pending) storedFiles.current.delete(f.id);
+      console.error("excaliagent: saving images failed", err);
+    });
   }, []);
 
   const save = useCallback((now = false) => {
@@ -86,6 +120,7 @@ export function App() {
     clearTimeout(saveTimer.current);
     const run = () => {
       const elements = ex.getSceneElements();
+      uploadFiles(elements, ex.getFiles());
       const hash = saveHash(elements);
       if (hash === lastSaved.current) return;
       lastSaved.current = hash;
@@ -98,7 +133,7 @@ export function App() {
     };
     if (now) run();
     else saveTimer.current = setTimeout(run, SAVE_DEBOUNCE_MS);
-  }, [excalidraw]);
+  }, [excalidraw, uploadFiles]);
 
   /** Bring the scene in line with what we know about sessions. */
   const sync = useCallback(
@@ -169,10 +204,11 @@ export function App() {
   }, [excalidraw, fontsLoaded, sync]);
 
   const onChange = useCallback(
-    (elements: Elements) => {
+    (elements: Elements, _appState: AppState, files: BinaryFiles) => {
+      uploadFiles(elements, files);
       if (saveHash(elements.filter((e) => !e.isDeleted)) !== lastSaved.current) save();
     },
-    [save],
+    [save, uploadFiles],
   );
 
   const sessionFor = useCallback(

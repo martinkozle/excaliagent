@@ -63,3 +63,25 @@ describe("scene store", () => {
     await expect(store.save({ nope: true } as never)).rejects.toThrow(/elements/);
   });
 });
+
+describe("image files", () => {
+  const png = (id: string) => ({ id, mimeType: "image/png", dataURL: `data:image/png;base64,${btoa(id)}`, created: 5 });
+
+  it("stores each file once under files/ and loads them by id, skipping unknown ids", async () => {
+    const store = createSceneStore(dir);
+    await store.saveFiles([png("a1"), png("b2")]);
+    await store.saveFiles([png("a1")]); // already there: no rewrite
+    expect((await readdir(join(dir, "files"))).sort()).toEqual(["a1.json", "b2.json"]);
+    expect(await store.loadFiles(["b2", "zz", "a1"])).toEqual([png("b2"), png("a1")]);
+    expect(await store.loadFiles([])).toEqual([]);
+  });
+
+  it("rejects ids that could escape the folder and data that is not an image", async () => {
+    const store = createSceneStore(dir);
+    await expect(store.saveFiles([png("../x")])).rejects.toThrow(/id/);
+    await expect(store.saveFiles([{ ...png("c3"), mimeType: "text/html" }])).rejects.toThrow(/mimeType/);
+    await expect(store.saveFiles([{ ...png("c3"), dataURL: "javascript:alert(1)" }])).rejects.toThrow(/dataURL/);
+    await expect(store.saveFiles([{ ...png("c3"), dataURL: "data:text/html;base64,PGh0bWw+" }])).rejects.toThrow(/dataURL/);
+    expect(await store.loadFiles(["../scene", "c3"])).toEqual([]);
+  });
+});

@@ -1,3 +1,4 @@
+import type { BinaryFileData } from "@excalidraw/excalidraw/types";
 import type { Session } from "../shared/types.ts";
 
 export type ResumeResult = "ok" | "no herdr" | "live" | "unknown";
@@ -23,6 +24,12 @@ export const api = {
   saveScene: async (scene: SavedScene): Promise<void> => {
     await ok(await fetch("/api/scene", jsonInit("PUT", scene)));
   },
+  /** Image data of pasted pictures (Excalidraw keeps it apart from elements). */
+  saveFiles: async (files: BinaryFileData[]): Promise<void> => {
+    await ok(await fetch("/api/files", jsonInit("PUT", { files })));
+  },
+  loadFiles: async (ids: string[]): Promise<BinaryFileData[]> =>
+    ids.length ? (await ok(await fetch("/api/files/get", jsonInit("POST", { ids })))).json() : [],
   sessions: async (): Promise<Session[]> => (await ok(await fetch("/api/sessions"))).json(),
   picker: async (): Promise<Session[]> => (await ok(await fetch("/api/picker"))).json(),
   lookup: async (ids: string[]): Promise<Session[]> =>

@@ -53,7 +53,8 @@ OpenCode) are a later adapter.
   with cold cache and dormant cards are muted.
 - The card shows a handwritten title and smaller details: repo · branch,
   status · waiting-for · age, cache warmth, `herdr: workspace › tab` (or "not in
-  herdr"), PR link.
+  herdr"), PR link, and the harness logo in the corner (Claude today), so
+  cards of different agents tell apart.
 - Colour and text update within 2 s of a change.
 - The app never changes position, size, rotation, grouping, frame membership,
   or any element it did not create.
@@ -82,6 +83,7 @@ OpenCode) are a later adapter.
 
 - The scene is saved locally and restored on restart; saves are atomic.
 - The inbox is a rectangle I can move and resize; new cards land inside it.
+- Images I paste onto the board are kept too.
 
 ### S6. Publish (in progress)
 

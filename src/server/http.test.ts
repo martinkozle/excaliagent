@@ -158,6 +158,22 @@ describe("api", () => {
     expect(await (await get("/api/scene")).json()).toEqual(scene);
   });
 
+  it("image files round-trip through PUT /api/files and POST /api/files/get", async () => {
+    const file = { id: "f00d", mimeType: "image/png", dataURL: "data:image/png;base64,AAAA", created: 1 };
+    expect((await send("PUT", "/api/files", { files: [file] })).status).toBe(204);
+    const res = await send("POST", "/api/files/get", { ids: ["f00d", "nope"] });
+    expect(await res.json()).toEqual([file]);
+    expect((await send("PUT", "/api/files", { files: [{ ...file, id: "../x" }] })).status).toBe(400);
+    expect((await send("PUT", "/api/files", { files: "x" })).status).toBe(400);
+    expect((await send("POST", "/api/files/get", { ids: [1] })).status).toBe(400);
+    const foreign = await fetch(`${base}/api/files`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json", origin: "http://evil.example" },
+      body: JSON.stringify({ files: [{ ...file, id: "evil" }] }),
+    });
+    expect(foreign.status).toBe(403);
+  });
+
   it("PUT /api/scene rejects garbage", async () => {
     expect((await send("PUT", "/api/scene", { elements: "x" })).status).toBe(400);
     const bad = await fetch(`${base}/api/scene`, {

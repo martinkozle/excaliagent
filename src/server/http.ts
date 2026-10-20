@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { SESSION_ID, type Hub } from "./hub.ts";
-import type { SceneStore } from "./scene-store.ts";
+import { validFile, type SceneStore } from "./scene-store.ts";
 
 /** Connect-style middleware, e.g. Vite's dev server in middleware mode. */
 export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
@@ -165,6 +165,22 @@ export function createAppServer(opts: AppServerOptions): AppServer {
         await opts.scenes.save({ elements: body.elements, appState: appState as Record<string, unknown> });
         res.writeHead(204).end();
         return;
+      }
+      case "PUT /api/files": {
+        const body = (await readJson(req)) as { files?: unknown };
+        if (!Array.isArray(body?.files)) throw new HttpError(400, "files must be an array");
+        const bad = body.files.map(validFile).find((f) => f instanceof Error);
+        if (bad) throw new HttpError(400, bad.message);
+        await opts.scenes.saveFiles(body.files);
+        res.writeHead(204).end();
+        return;
+      }
+      case "POST /api/files/get": {
+        const body = (await readJson(req)) as { ids?: unknown };
+        if (!Array.isArray(body?.ids) || !body.ids.every((i) => typeof i === "string")) {
+          throw new HttpError(400, "ids must be a string array");
+        }
+        return json(res, 200, await opts.scenes.loadFiles(body.ids));
       }
       case "POST /api/focus": {
         const body = (await readJson(req)) as { sessionId?: unknown };

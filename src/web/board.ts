@@ -1,5 +1,6 @@
 // Small pure helpers the React shell uses around reconcile.
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { BinaryFileData, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { Session } from "../shared/types.ts";
 import { cardMeta, isDormant, prLink, shortPr } from "./cards.ts";
 
@@ -110,4 +111,24 @@ export function saveHash(elements: readonly ExcalidrawElement[]): string {
     for (let i = 0; i < key.length; i++) h = (Math.imul(h, 31) + key.charCodeAt(i)) | 0;
   }
   return `${elements.length}:${h}`;
+}
+
+/** File ids of the live image elements, each once. */
+export function imageFileIds(elements: readonly ExcalidrawElement[]): string[] {
+  const ids = new Set<string>();
+  for (const e of elements) if (!e.isDeleted && e.type === "image" && e.fileId) ids.add(e.fileId);
+  return [...ids];
+}
+
+/** Image data the board shows that the server has not stored yet; built-in files (logos) never go up. */
+export function filesToUpload(
+  elements: readonly ExcalidrawElement[],
+  files: BinaryFiles,
+  stored: ReadonlySet<string>,
+  builtIn: ReadonlySet<string>,
+): BinaryFileData[] {
+  return imageFileIds(elements)
+    .filter((id) => !stored.has(id) && !builtIn.has(id))
+    .map((id) => files[id])
+    .filter((f): f is BinaryFileData => f !== undefined);
 }

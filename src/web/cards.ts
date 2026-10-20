@@ -1,8 +1,8 @@
 // Card building blocks: colours, title/details text, and raw Excalidraw elements.
 //
-// A card is three app-owned elements sharing a fresh group (first = innermost
-// in `groupIds`): a rectangle, a title text (Excalifont 20) and a details text
-// (Nunito 14). Neither text is bound to the rectangle: Excalidraw allows one
+// A card is four app-owned elements sharing a fresh group (first = innermost
+// in `groupIds`): a rectangle, a title text (Excalifont 20), a details text
+// (Nunito 14) and the harness logo (an image, top-right; see logos.ts). Neither text is bound to the rectangle: Excalidraw allows one
 // bound text per container and one font size per text element.
 //
 // Pure and DOM-free: elements are plain objects (no `convertToExcalidrawElements`),
@@ -13,11 +13,13 @@
 // reconcile compares on `originalText`, so that never counts as a change.
 import type {
   ExcalidrawElement,
+  ExcalidrawImageElement,
   ExcalidrawRectangleElement,
   ExcalidrawTextElement,
   FontFamilyValues,
 } from "@excalidraw/excalidraw/element/types";
 import { NEEDS_INPUT, type Session } from "../shared/types.ts";
+import { LOGOS } from "./logos.ts";
 
 export type Element = ExcalidrawElement;
 
@@ -59,6 +61,9 @@ export const estimateMeasure: Measure = (text, fontFamily, fontSize) =>
   text.length * fontSize * (fontFamily === TITLE_FONT ? 0.6 : 0.55);
 
 export const INNER_W = CARD_W - 2 * PAD;
+export const LOGO_SIZE = 20;
+/** Title lines stop short of the logo in the top-right corner. */
+export const TITLE_W = INNER_W - LOGO_SIZE - 8;
 
 export const TITLE_H = TITLE_SIZE * TITLE_LH;
 /** Fits two title lines and five detail lines. */
@@ -70,7 +75,8 @@ export const INBOX_H = 20 + 8 * (CARD_H + 20);
 export const INBOX_ORIGIN = { x: 40, y: 80 };
 
 export type CardMeta = { kind: "card"; source: Session["source"]; sessionId: string };
-export type CardPartKind = "card-title" | "card-details";
+export type CardPartKind = "card-title" | "card-details" | "card-logo";
+export type CardTextKind = Exclude<CardPartKind, "card-logo">;
 export type CardPartMeta = { kind: CardPartKind; sessionId: string; cardId: string };
 export type InboxMeta = { kind: "inbox" } | { kind: "inbox-label" };
 
@@ -128,8 +134,8 @@ export function prLink(s: Session): string | null {
 
 type Fits = (text: string) => boolean;
 
-function fitsWith(measure: Measure, fontFamily: number, fontSize: number): Fits {
-  return (t) => measure(t, fontFamily, fontSize) <= INNER_W;
+function fitsWith(measure: Measure, fontFamily: number, fontSize: number, width = INNER_W): Fits {
+  return (t) => measure(t, fontFamily, fontSize) <= width;
 }
 
 /** Longest prefix that fits with a trailing "…" (whole `text` if it fits). */
@@ -160,7 +166,7 @@ function splitLine(text: string, fits: Fits): [string, string] {
 
 /** Word-wrap to at most two lines; only the second is cut with "…". */
 export function wrapTitle(raw: string, measure: Measure = estimateMeasure): string {
-  const fits = fitsWith(measure, TITLE_FONT, TITLE_SIZE);
+  const fits = fitsWith(measure, TITLE_FONT, TITLE_SIZE, TITLE_W);
   const text = raw.replace(/\s+/g, " ").trim();
   const [l1, rest] = splitLine(text, fits);
   if (!rest) return l1;
@@ -206,7 +212,7 @@ export function detailsText(s: Session, now: number, measure: Measure = estimate
 
 /** Box of a free (auto-resizing) text element of `part`. */
 export function partBox(
-  part: CardPartKind,
+  part: CardTextKind,
   text: string,
   measure: Measure = estimateMeasure,
 ): { width: number; height: number } {
@@ -214,7 +220,7 @@ export function partBox(
   const [family, size, lh] = title ? [TITLE_FONT, TITLE_SIZE, TITLE_LH] : [DETAIL_FONT, DETAIL_SIZE, DETAIL_LH];
   const lines = text.split("\n");
   return {
-    width: Math.min(INNER_W, Math.ceil(Math.max(...lines.map((l) => measure(l, family, size))))),
+    width: Math.min(title ? TITLE_W : INNER_W, Math.ceil(Math.max(...lines.map((l) => measure(l, family, size))))),
     height: lines.length * size * lh,
   };
 }
@@ -281,7 +287,7 @@ function textElement(
 }
 
 /** Where a card part sits relative to its rect's top-left; details follow the title's line count. */
-export function partOffset(part: CardPartKind, titleLines = 1): { dx: number; dy: number } {
+export function partOffset(part: CardTextKind, titleLines = 1): { dx: number; dy: number } {
   return part === "card-title" ? { dx: PAD, dy: PAD } : { dx: PAD, dy: PAD + titleLines * TITLE_H + TITLE_GAP };
 }
 
@@ -289,7 +295,7 @@ export const lineCount = (text: string) => text.split("\n").length;
 
 /** A title or details text for the card `rect`, placed at the rect's current position. */
 export function makeCardPart(
-  part: CardPartKind,
+  part: CardTextKind,
   rect: Pick<ExcalidrawElement, "id" | "x" | "y" | "groupIds">,
   sessionId: string,
   text: string,
@@ -319,14 +325,51 @@ export function makeCardPart(
   );
 }
 
-/** A new card: rect, title, details, all in one fresh group. */
+/**
+ * The source's logo for the card `rect`: top-right, centred on the first title
+ * line. Undefined for a source without a logo.
+ */
+export function makeCardLogo(
+  rect: Pick<ExcalidrawElement, "id" | "x" | "y" | "width" | "groupIds">,
+  sessionId: string,
+  source: Session["source"],
+  gen: Gen,
+  now: number,
+): ExcalidrawImageElement | undefined {
+  const logo = LOGOS[source];
+  if (!logo) return undefined;
+  const meta: CardPartMeta = { kind: "card-logo", sessionId, cardId: rect.id };
+  return {
+    ...base(gen, now),
+    id: gen.id(),
+    type: "image",
+    x: rect.x + rect.width - PAD - LOGO_SIZE,
+    y: rect.y + PAD + (TITLE_H - LOGO_SIZE) / 2,
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeStyle: "solid",
+    roundness: null,
+    boundElements: null,
+    groupIds: [...rect.groupIds],
+    fileId: logo.fileId,
+    status: "saved",
+    scale: [1, 1],
+    crop: null,
+    customData: { excaliagent: meta },
+  };
+}
+
+/** A new card: rect, title, details and logo, all in one fresh group. */
 export function makeCard(
   s: Session,
   at: { x: number; y: number },
   gen: Gen,
   now: number,
   measure: Measure = estimateMeasure,
-): [ExcalidrawRectangleElement, ExcalidrawTextElement, ExcalidrawTextElement] {
+): [ExcalidrawRectangleElement, ExcalidrawTextElement, ExcalidrawTextElement, ...ExcalidrawImageElement[]] {
   const meta: CardMeta = { kind: "card", source: s.source, sessionId: s.id };
   const rect: ExcalidrawRectangleElement = {
     ...base(gen, now),
@@ -348,6 +391,7 @@ export function makeCard(
     rect,
     makeCardPart("card-title", rect, s.id, title, gen, now, measure),
     makeCardPart("card-details", rect, s.id, detailsText(s, now, measure), gen, now, measure, lineCount(title)),
+    ...[makeCardLogo(rect, s.id, s.source, gen, now)].filter((e) => e !== undefined),
   ];
 }
 
@@ -415,7 +459,10 @@ export function cardMeta(e: ExcalidrawElement): CardMeta | undefined {
 
 export function cardPartMeta(e: ExcalidrawElement): CardPartMeta | undefined {
   const m = e.customData?.excaliagent;
-  return e.type === "text" && (m?.kind === "card-title" || m?.kind === "card-details") && typeof m.sessionId === "string"
+  const typed =
+    (e.type === "text" && (m?.kind === "card-title" || m?.kind === "card-details")) ||
+    (e.type === "image" && m?.kind === "card-logo");
+  return typed && typeof m.sessionId === "string"
     ? (m as CardPartMeta)
     : undefined;
 }

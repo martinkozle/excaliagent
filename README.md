@@ -10,7 +10,7 @@ app keeps each card's **color and label** in sync with the session and never
 moves, resizes, or edits anything else.
 
 ```
-Fix flaky checkout test           ← title (handwritten, larger)
+Fix flaky checkout test       ✳   ← title (handwritten, larger), harness logo
 demo-app · fix/flaky              ← repo · branch
 needs user: input needed · 2m     ← status · what it waits for · last activity
 cache warm 41m                    ← prompt-cache warmth
@@ -69,6 +69,8 @@ See `npx excaliagent --help`.
 - Its only actions: focus a herdr pane, raise the terminal window, and start
   `claude --resume <id>` in a new herdr pane. It never types into a running
   session.
+- Images you paste onto the board are stored next to the scene, in the
+  state directory.
 - The only outside request: Chinese, Japanese or Korean text on the board loads
   Excalidraw's CJK font from esm.sh (it is not bundled, to keep the package
   small). Everything else, including all other fonts, is served locally.
@@ -105,3 +107,5 @@ A privacy test fails if any fixture contains this machine's home path or user
 name.
 
 Docs: [product](docs/product.md), [design](docs/design.md), [roadmap](docs/roadmap.md). Agents start at [AGENTS.md](AGENTS.md).
+
+MIT licensed. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to.
