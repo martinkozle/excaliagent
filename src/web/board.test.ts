@@ -99,25 +99,26 @@ describe("menuItems", () => {
       { action: "copy", label: "Copy resume command", text: "claude --resume s1" },
       { action: "copy", label: "Copy resume command with cd", text: resumeCommand(s) },
       { action: "open", label: "Open PR #12", url: "https://github.com/a/b/pull/12" },
+      { action: "character", label: "Change character…" },
       { action: "end", label: "Stop session…" },
     ]);
   });
 
   it("live without pane: no focus, but it can be stopped", () => {
-    expect(labels(session({ pane: undefined }))).toEqual(["Copy resume command", "Copy resume command with cd", "Stop session…"]);
+    expect(labels(session({ pane: undefined }))).toEqual(["Copy resume command", "Copy resume command with cd", "Change character…", "Stop session…"]);
   });
 
   it("dormant: resume in herdr first; MR label", () => {
     const s = session({ live: false, status: "dormant", prLinks: ["https://gitlab.com/g/r/-/merge_requests/3"] });
-    expect(labels(s)).toEqual(["Resume in herdr", "Copy resume command", "Copy resume command with cd", "Open MR !3"]);
+    expect(labels(s)).toEqual(["Resume in herdr", "Copy resume command", "Copy resume command with cd", "Open MR !3", "Change character…"]);
   });
 
   it("unknown session: only the plain copy", () => {
-    expect(labels(undefined)).toEqual(["Copy resume command"]);
+    expect(labels(undefined)).toEqual(["Copy resume command", "Change character…"]);
   });
 
   it("non-standard PR url: generic label", () => {
-    expect(labels(session({ live: false, status: "dormant", prLinks: ["https://x.example/y"] })).at(-1)).toBe("Open PR");
+    expect(labels(session({ live: false, status: "dormant", prLinks: ["https://x.example/y"] })).at(-2)).toBe("Open PR");
   });
 });
 
@@ -173,9 +174,10 @@ describe("image files", () => {
 
   it("filesToUpload: files on the board not yet stored, never built-in ones, only when loaded", () => {
     const files = { shot: file("shot"), logo: file("logo"), gone: file("gone") } as never;
-    expect(filesToUpload(elements, files, new Set(), new Set(["logo"]))).toEqual([file("shot")]);
-    expect(filesToUpload(elements, files, new Set(["shot"]), new Set(["logo"]))).toEqual([]);
-    expect(filesToUpload(elements, {} as never, new Set(), new Set())).toEqual([]);
+    const isLogo = (id: string) => id === "logo";
+    expect(filesToUpload(elements, files, new Set(), isLogo)).toEqual([file("shot")]);
+    expect(filesToUpload(elements, files, new Set(["shot"]), isLogo)).toEqual([]);
+    expect(filesToUpload(elements, {} as never, new Set(), () => false)).toEqual([]);
   });
 });
 

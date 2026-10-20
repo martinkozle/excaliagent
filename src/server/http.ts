@@ -4,6 +4,7 @@ import { extname, join, normalize, sep } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { SESSION_ID, type Hub } from "./hub.ts";
 import { validFile, type SceneStore } from "./scene-store.ts";
+import { StatusError, type CharacterStore } from "./characters.ts";
 
 /** Connect-style middleware, e.g. Vite's dev server in middleware mode. */
 export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
@@ -11,6 +12,7 @@ export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () =>
 export interface AppServerOptions {
   hub: Hub;
   scenes: SceneStore;
+  characters: CharacterStore;
   token: string;
   /** Built frontend (dist/web). Ignored when `middleware` is given. */
   webRoot?: string;
@@ -78,15 +80,21 @@ function text(res: ServerResponse, status: number, body: string) {
   res.end(body);
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+/** Body limits of the character and pack routes: an image upload, everything else. */
+export const IMAGE_BODY_LIMIT = 1536 * 1024;
+export const SMALL_BODY_LIMIT = 64 * 1024;
+
+async function readJson(req: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
   if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
     throw new HttpError(415, "expected application/json");
   }
+  // Refuse a declared oversize body before reading any of it.
+  if (Number(req.headers["content-length"] ?? 0) > limit) throw new HttpError(413, "body too large");
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY) throw new HttpError(413, "body too large");
+    if (size > limit) throw new HttpError(413, "body too large");
     chunks.push(chunk as Buffer);
   }
   try {
@@ -143,9 +151,73 @@ export function createAppServer(opts: AppServerOptions): AppServer {
     });
   }
 
-  async function api(req: IncomingMessage, res: ServerResponse, pathname: string) {
+  /** GET /api/packs/<pack>/<file>: a custom pack's image, only if that pack lists it. */
+  async function packImage(res: ServerResponse, rest: string, version: string | null) {
+    const parts = rest.split("/");
+    if (parts.length !== 2) return json(res, 404, { error: "not found" });
+    let pack: string, file: string;
+    try {
+      [pack, file] = parts.map((p) => decodeURIComponent(p)) as [string, string];
+    } catch {
+      throw new HttpError(400, "bad path");
+    }
+    const img = await opts.characters.readImage(pack, file);
+    if (!img) return json(res, 404, { error: "not found" });
+    res.writeHead(200, {
+      "content-type": img.mimeType,
+      // `?v=<content hash>` (from the pack listing) names these exact bytes.
+      "cache-control": version === img.hash ? "private, max-age=31536000, immutable" : "no-store",
+      "x-content-type-options": "nosniff",
+      // An SVG opened directly must not run scripts on our origin.
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    });
+    res.end(img.bytes);
+  }
+
+  async function api(req: IncomingMessage, res: ServerResponse, pathname: string, search: URLSearchParams) {
     const route = `${req.method} ${pathname}`;
+    if (req.method === "GET" && pathname.startsWith("/api/packs/")) return packImage(res, pathname.slice("/api/packs/".length), search.get("v"));
+    const chars = opts.characters;
+    const body = async () => {
+      const b = await readJson(req, pathname === "/api/packs/image" ? IMAGE_BODY_LIMIT : SMALL_BODY_LIMIT);
+      if (!b || typeof b !== "object") throw new HttpError(400, "expected a JSON object");
+      return b as Record<string, unknown>;
+    };
     switch (route) {
+      case "GET /api/characters":
+        return json(res, 200, await chars.load());
+      case "POST /api/characters/assign": {
+        const b = await body();
+        return json(res, 200, await chars.assign(b.pack as string, b.assign as Record<string, string>));
+      }
+      case "POST /api/characters/override": {
+        const b = await body();
+        return json(res, 200, await chars.override(b.sessionId as string, (b.character ?? null) as never));
+      }
+      case "POST /api/characters/active":
+        return json(res, 200, await chars.setActive((await body()).pack as string));
+      case "POST /api/packs": {
+        const b = await body();
+        return json(res, 200, await chars.createPack(b.name as string, (b.from ?? undefined) as string | undefined));
+      }
+      case "POST /api/packs/rename": {
+        const b = await body();
+        return json(res, 200, await chars.renamePack(b.pack as string, b.name as string));
+      }
+      case "POST /api/packs/delete":
+        return json(res, 200, await chars.deletePack((await body()).pack as string));
+      case "POST /api/packs/emoji": {
+        const b = await body();
+        return json(res, 200, await chars.addEmoji(b.pack as string, b.emoji as string));
+      }
+      case "POST /api/packs/image": {
+        const b = await body();
+        return json(res, 200, await chars.addImage(b.pack as string, b.name as string, b.dataURL as string));
+      }
+      case "POST /api/packs/remove": {
+        const b = await body();
+        return json(res, 200, await chars.removeCharacter(b.pack as string, b.id as string));
+      }
       case "GET /api/sessions":
         return json(res, 200, opts.hub.sessions());
       case "GET /api/events":
@@ -250,14 +322,14 @@ export function createAppServer(opts: AppServerOptions): AppServer {
       return text(res, 401, "excaliagent: open the URL printed in the terminal (it carries the access token).");
     }
 
-    if (url.pathname.startsWith("/api/")) return api(req, res, url.pathname);
+    if (url.pathname.startsWith("/api/")) return api(req, res, url.pathname, url.searchParams);
     if (opts.middleware) return opts.middleware(req, res, () => text(res, 404, "not found"));
     return serveStatic(req, res, url.pathname);
   }
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
-      const status = err instanceof HttpError ? err.status : 500;
+      const status = err instanceof HttpError || err instanceof StatusError ? err.status : 500;
       if (status === 500) console.error("excaliagent:", err);
       if (!res.headersSent) json(res, status, { error: (err as Error).message });
       else res.end();

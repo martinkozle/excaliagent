@@ -32,6 +32,13 @@ export const TidyIcon = icon(
   "M6 4h12a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-2a2 2 0 0 1 2 -2z",
   "M6 14h12a2 2 0 0 1 2 2v2a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-2a2 2 0 0 1 2 -2z",
 );
+/** A smiling face: the cards' characters. */
+export const CharactersIcon = icon(
+  "M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0 -18z",
+  "M9 10h.01",
+  "M15 10h.01",
+  "M9.5 15a3.5 3.5 0 0 0 5 0",
+);
 /** A clock turning back: earlier (dormant) sessions. */
 export const SessionsIcon = icon("M12 8v4l2 2", "M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5");
 

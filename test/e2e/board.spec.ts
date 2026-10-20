@@ -91,7 +91,7 @@ test("live sessions spawn as colored cards in the inbox; dormant ones do not", a
   expect(card(ID.idleWarm)?.backgroundColor).toBe(GREEN);
   expect(card(ID.idleCold)?.backgroundColor).toBe(GREY);
   expect(card(ID.dormantA)).toBeUndefined();
-  expect(card(ID.needsUser)?.label).toContain("Fix flaky checkout test");
+  expect(card(ID.needsUser)?.label).toContain("Fix flaky checkout");
   expect(card(ID.needsUser)?.label).toContain("demo-app · fix/flaky");
   expect(card(ID.needsUser)?.label).toContain("input needed");
   expect(card(ID.needsUser)?.label).toContain("PR #12");
@@ -148,7 +148,7 @@ test("cards fit their title: one-line titles get short cards, a long title a tal
   board.mock.setTitle(ID.busy, longer);
   await expect.poll(() => card(ID.busy)?.height).toBe(tall.height);
   expect(card(ID.busy)).toMatchObject({ x: short.x, y: short.y, appHeight: tall.height });
-  await expect.poll(() => card(ID.idleCold)?.label).toContain("Bump every dependency");
+  await expect.poll(() => card(ID.idleCold)?.label).toContain("Bump every");
   expect(card(ID.idleCold)?.height).toBe(300);
   await page.screenshot({ path: "test-results/board-fit-title.png" });
 });
@@ -315,7 +315,13 @@ test("right-clicking a card adds our section beside Excalidraw's menu", async ({
   const ours = page.locator(".excaliagent-menu");
   await expect(theirs).toBeVisible();
   await expect(ours).toBeVisible();
-  await expect(ours.getByRole("menuitem")).toHaveText(["Copy resume command", "Copy resume command with cd", "Open PR #12", "Stop session…"]);
+  await expect(ours.getByRole("menuitem")).toHaveText([
+    "Copy resume command",
+    "Copy resume command with cd",
+    "Open PR #12",
+    "Change character…",
+    "Stop session…",
+  ]);
   await expectBeside(page);
   await page.screenshot({ path: "test-results/board-card-menu.png" });
 
@@ -422,7 +428,7 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
  */
 async function expectTopButtonsClean(page: Page): Promise<number> {
   const buttons = page.locator(".excaliagent-top .sidebar-trigger");
-  await expect(buttons).toHaveCount(3);
+  await expect(buttons).toHaveCount(4); // + Lane, Tidy all, Characters, Sessions
   const vp = page.viewportSize()!;
   const boxes = [];
   let labels = 0;
@@ -450,7 +456,7 @@ async function expectTopButtonsClean(page: Page): Promise<number> {
     if (await el.isVisible()) boxes.push((await el.boundingBox())!);
   }
   // Pairs with at least one of ours (Library sits inside the mobile column).
-  for (let i = 0; i < 3; i++)
+  for (let i = 0; i < 4; i++)
     for (let j = i + 1; j < boxes.length; j++) {
       const [a, b] = [boxes[i]!, boxes[j]!];
       const overlap = a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
@@ -468,7 +474,7 @@ test("the top-right buttons never overlap: labels collapse into tooltips on narr
     await expect.poll(() => page.evaluate(() => (window as any).__excaliagent.excalidraw.getAppState().width)).toBe(width);
     shown[width] = await expectTopButtonsClean(page);
   }
-  expect(shown).toEqual({ 1400: 3, 1160: 3, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
+  expect(shown).toEqual({ 1400: 4, 1160: 0, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
   // Icon-only buttons keep their names and tooltips, and still work.
   await expect(page.getByRole("button", { name: "Add lane" })).toHaveAttribute("title", "Add a lane at the right end");
   await page.getByRole("button", { name: "Add lane" }).click();
@@ -570,7 +576,8 @@ test.describe("lining cards up in a lane", () => {
     await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + busy.height + 20 });
     // The card's texts came along.
     const parts = board.savedElements().filter((e) => e.customData?.excaliagent?.cardId === card(ID.needsUser)!.id);
-    expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 14 });
+    expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 54 }); // TITLE_X
+    expect(parts.find((e) => e.customData.excaliagent.kind === "card-character")).toMatchObject({ x: lane.x + 20 + 14 });
     // Lanes are never resized or moved.
     expect(todo()).toMatchObject({ x: lane.x, y: lane.y, width: lane.width, height: lane.height });
 

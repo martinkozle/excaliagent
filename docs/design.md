@@ -42,6 +42,7 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 | Stack | Node/TypeScript; server has zero runtime deps; Vite + React + `@excalidraw/excalidraw` | One toolchain; `npx` stays light |
 | Fonts | Excalidraw fonts except Xiaolai (CJK) are served locally (`EXCALIDRAW_ASSET_PATH = "/"`); Xiaolai loads from Excalidraw's default CDN | Keeps offline Latin text, ~3 MB package |
 | Runtime | Node (not Bun) | `npx` works wherever Claude Code does |
+| Characters | Emoji packs built in; custom packs are folders in the state dir; assignment remembered server-side in `characters.json` | Emoji need no licence or bundled art; folders work by hand; remembering keeps a session's character stable when cards come and go (see "Characters") |
 
 ## Session model
 
@@ -230,20 +231,28 @@ registry plus file watching is enough, and "no setup" is a goal.
 
 ### Cards
 
-A card is four app-owned elements in one app group (group id first in
+A card is five app-owned elements in one app group (group id first in
 `groupIds`, i.e. innermost):
 
-- **rect** — `customData.excaliagent = {kind:"card", source, sessionId, appHeight}`,
+- **rect** — `customData.excaliagent = {kind:"card", source, sessionId, appHeight, charLayout?}`,
   300 wide, as tall as its title needs: room for 1 or 2 title lines + 5 detail
   lines (`cardHeight`; 156 or 181 px). `appHeight` is the height the app last
   gave it (see "What the app may change"). `fillStyle: "solid"` always,
-  `link` = last PR URL (Excalidraw shows its link icon).
-- **title** — Excalifont (5) 20 px, `#1e1e1e`, word-wrapped to 2 lines of
-  `TITLE_W` (short of the logo), the second cut with "…".
+  `link` = last PR URL (Excalidraw shows its link icon). `charLayout: 1` once
+  the card got its character (see "What the app may change").
+- **character** — an image element, 32 px (`AVATAR_SIZE`), at the rect's
+  top-left inside the padding (14, 14): the session's character (see
+  "Characters"). `{kind:"card-character", sessionId, cardId}`. It sits beside
+  the title only: it ends at y = 46, and the details start at y = 47 under a
+  one-line title (72 under two), so the card height is the same as without it.
+- **title** — Excalifont (5) 20 px, `#1e1e1e`, at `TITLE_X` = 14 + 32 + 8 = 54
+  px from the rect's left, word-wrapped to 2 lines of `TITLE_W` (204 px: from
+  the character to short of the logo), the second cut with "…".
   `{kind:"card-title", sessionId, cardId}`.
 - **details** — Nunito (6) 14 px, `#495057`: `repo · branch` / `status: waitingFor ·
   age` / `cache warm 41m` | `cache cold` / `herdr: ws › tab` | `not in herdr` /
-  `PR #12`. Empty lines dropped. `{kind:"card-details", sessionId, cardId}`.
+  `PR #12`. Empty lines dropped. Full width (`TEXT_W` 272 px) at the rect's left
+  padding, under the title. `{kind:"card-details", sessionId, cardId}`.
 - **logo** — an image element, 20 px, in the rect's top-right corner, centred
   on the first title line: the harness mark (`src/web/logos.ts`; Claude's from
   simple-icons, CC0). `{kind:"card-logo", sessionId, cardId}`. Its file
@@ -326,14 +335,36 @@ the same array.
   `text`/`originalText` and their box size; the details text is re-placed under
   the title when the title's line count changes. Never x, y, width,
   angle, groupIds or frameId of anything, nor the height of anything else.
-- Card whose session is unknown → restyled dormant; texts and link left alone.
+- Card whose session is unknown → restyled dormant; texts and link left alone
+  (never moved either).
 - `continuedIn = X` → the card is retargeted to X (rect and texts' `sessionId`)
   before spawning, following chains, unless a hop already has a card.
 - Missing title/details/logo (user deleted one, or a card from before logos)
   → recreated at the rect's current position (the logo at its current right
-  edge). Parts whose rect is gone → soft-deleted. Copy-pasted cards keep their
-  own parts (matched by group first). The logo is never patched or moved after
-  that.
+  edge). Parts whose rect is gone → soft-deleted, so a lone copy of a logo or
+  character pasted without its card is cleaned up. Copy-pasted cards keep their
+  own parts (matched by group first); a pasted card's character is re-derived
+  from its session like any other card's. The logo is never patched or moved
+  after that.
+- **Character** (only once character data has loaded; never for a card the
+  session of which has no character data at all):
+  - A card without `charLayout` gets its character at the rect's current
+    top-left (PAD, PAD) and `charLayout: 1`. In the same pass its title moves to
+    `TITLE_X` **only if it is still exactly at the old app spot** (x = rect.x +
+    14, y = rect.y + 14, where cards up to 0.3 had it); a title the user moved
+    stays. Details never move for this (they keep their old spot, which is
+    still right). This happens once per card.
+  - If the card's session is unknown (no session data), nothing moves: the
+    character is added only if it does not overlap the title, otherwise the
+    card waits (no flag) until its session is known.
+  - With `charLayout` set and no character element, the user removed it
+    (deleted it, or picked *None*): it is never recreated and the title is not
+    moved back. Picking a character (or *Reset to automatic*) in the picker
+    clears the flag, so it is added again (the title is already right of it).
+  - An existing character: only its `fileId`, when the session's character
+    changes; never moved or resized (the user may). When the session has no
+    character (empty pack) it is soft-deleted and `charLayout` cleared, so it
+    comes back with the next character.
 - **Migration** of old cards (rect + bound 5-line label): the bound text is
   soft-deleted, a fresh group id is prepended to the rect's `groupIds`, the
   rect grows to the new height if shorter, and title/details are created at the
@@ -367,7 +398,7 @@ their rotated bounds), and a fixed card being dragged is never placed.
   `src/web/board.ts`; it uses the panel's measured height). Above/below does not
   work: on a 1080p screen Excalidraw's own menu is ~730 px tall. Tinted with
   `--color-primary-light`, header in `--color-primary`. Items: Focus pane | Resume in herdr, Copy resume
-  command, Copy resume command with cd, Open PR. They act on pointerdown and let
+  command, Copy resume command with cd, Open PR, Change character…, Stop session…. They act on pointerdown and let
   the event bubble, so Excalidraw closes its menu and ours follows.
 - **Main menu**: Excalidraw's `<MainMenu>` with all of its default items
   re-listed (`MainMenu.DefaultItems.*`, as Excalidraw's own default menu) plus
@@ -385,7 +416,7 @@ their rotated bounds), and a fixed card being dragged is never placed.
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
 - **Top-right buttons** (`TopBar.tsx`, `topbar.ts`, `topbar.css`): "+ Lane",
-  "Tidy all" and "Sessions" are styled like Excalidraw's Library button (its
+  "Tidy all", "Characters" and "Sessions" are styled like Excalidraw's Library button (its
   `sidebar-trigger` class): a 24 px tabler-style icon (stroke 1.25, like
   Excalidraw's) and a one-line label. `sidebar-trigger` sets `line-height: 0`,
   so a label that wraps draws its lines over each other; ours never wrap.
@@ -463,6 +494,102 @@ their rotated bounds), and a fixed card being dragged is never placed.
   (`excaliagent.laneDrop` = `on`/`off`); every access is wrapped in try/catch,
   and unreadable storage means on. "Tidy cards" and "Tidy all" are always available.
 
+### Characters (`src/web/characters.ts`, `src/server/characters.ts`, `src/shared/packs.ts`)
+
+- **Packs.** A pack is an ordered list of characters, each an emoji or an
+  image. Built-ins (`src/shared/packs.ts`): `@animals` (default), `@cats`,
+  `@sea`, `@fantasy`, `@food`, 28–40 emoji each, from Unicode ≤ 12 without
+  ZWJ sequences or variation selectors so common emoji fonts have them. The
+  `@` keeps their ids apart from custom pack names. Read-only; "Duplicate to
+  edit" copies one into a custom pack.
+- **Custom packs** are folders `<stateDir>/packs/<name>/`, `name` matching
+  `^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$`. Other entries (invalid names, links)
+  are ignored and reported as `problems`, shown in the panel. A pack id must
+  match a folder exactly as the directory lists it, so on a case-insensitive
+  file system "FOO" never aliases "foo"; names that differ only in case count
+  as taken (renaming "foo" to "Foo" works). Characters: the emoji of an
+  optional `pack.json` (`{"emoji": ["🧟", …]}`, invalid entries dropped) in
+  order, then image files sorted by name. Listed images: regular files (no
+  symlinks, not hidden) with extension png, gif, webp, jpg, jpeg or svg, at
+  most 1 MB, whose first bytes match the type (PNG/GIF/WebP/JPEG magic, or an
+  `<svg` root). At most 200 characters; listing stops there, without hashing
+  the rest. A pack that cannot be read fully lists what it can plus an
+  `error`; other packs are unaffected. Uploaded file names are reduced to
+  `[A-Za-z0-9_-]` plus the type's extension, numbered if taken.
+- **Drawing.** The card's character is an image element, so emoji and pack
+  images take one path and render the same in exports. Emoji become an SVG
+  with a `<text>` in the system emoji font, under the file id
+  `excaliagent-emoji-<code points in hex>`; the board rebuilds it from the id,
+  so it is never stored. Pack images get `excaliagent-img-<sha256[:24] of the
+  bytes>` and are fetched from `/api/packs/<pack>/<file>?v=<that hash>`, then
+  handed to Excalidraw. Like logos, files whose id starts with `excaliagent-`
+  are never uploaded to `files/`, so a pack image is stored once, in its pack
+  folder. An image that cannot be fetched is drawn as ❔ (`excaliagent-emoji-2754`),
+  reported once in the console, and retried on the next 30 s tick; the
+  remembered pick is not changed. The panel and picker show ❔ for it too.
+- **Assignment** (pure, `assignCharacters`): over the sessions that have or
+  are about to get a card, in board order. (1) An override (from any pack)
+  wins. (2) Else the remembered pick for the active pack, if that character
+  still exists, taken in the order the picks were made (the key order of
+  `assigned[pack]`). (3) Everyone else: start at FNV-1a(session id) mod pack
+  size and probe linearly (wrapping) to the first character no other card
+  uses; if all are used, take the start slot (duplicates). New picks are
+  remembered at once, so a character never shifts when the cards it collided
+  with leave, and survives the card being deleted and re-added. Each pack
+  remembers its own picks, so switching packs and back restores them. A
+  `continuedIn` continuation inherits the remembered pick and override of the
+  session it continues.
+  **Uniqueness wins over memory in one case only:** when a remembered pick is
+  already shown by another card (an override, or an earlier pick: e.g. a card
+  came back after another session probed onto its character) and the pack
+  still has a free character, the later pick probes again (and the new pick is
+  remembered). An exhausted pack keeps remembered duplicates. Overrides are
+  never re-probed.
+- **Keeping in step with the server** (`CharacterSync`): new picks count at
+  once and are POSTed one batch per pack at a time; they stay pending until the
+  server's answer confirms (or drops) them, so a failed POST is resent on the
+  next 30 s tick. Every answer is the whole state; answers are numbered and one
+  that arrives after a newer one was applied is not applied (only the picks it
+  confirmed are merged). The server drops picks for unknown packs, characters
+  or sessions instead of refusing the batch. The board re-reads
+  `/api/characters` on every tick and when the Characters panel opens, so
+  hand-edited pack folders show up.
+- **Override**: right-click → "Change character…" opens a picker (our own
+  dialog, portalled into `.excalidraw` for the theme; it takes focus, keeps
+  Tab inside and closes on Escape) with every pack's characters, Shuffle (a
+  random character of the active pack not on the board, else any other),
+  Reset to automatic and None (removes the character from the card, as an
+  undoable edit; see "What the app may change").
+- **Characters panel**: an Excalidraw `Sidebar` ("Characters", top right) with
+  our own UI in Excalidraw's library style: each pack row has a radio that
+  makes it active and also shows it below, so right after a choice the
+  checked radio and the preview always agree; clicking anywhere else on the
+  row (its name is a "Show …" button for the keyboard) only shows the pack.
+  The shown pack's row is highlighted (no extra status line: the maintainer
+  found it noise); the radio stays checked on the pack chosen until the server
+  answers. Create, rename, delete, duplicate; a pack's characters as
+  library-like cells; add emoji by typing or pasting, images by pasting into
+  that field (placeholder "Emoji or image", the full hint in its tooltip, so it
+  fits the panel), dropping (the drop is stopped so Excalidraw does not also put the
+  image on the canvas) or uploading.
+- **`<stateDir>/characters.json`** (written atomically, a failed write leaves
+  no temp file; a corrupt file is moved aside as
+  `characters.json.corrupt-<ts>` and starts empty; malformed entries of a
+  hand-edited one are dropped; an active pack that no longer exists falls back
+  to `@animals`):
+
+  ```json
+  {"version": 1, "activePack": "@animals",
+   "assigned": {"@animals": {"<session id>": "🐱"}, "mobs": {"<session id>": "creeper.png"}},
+   "overrides": {"<session id>": {"pack": "@sea", "id": "🐙"}}}
+  ```
+
+  Renaming a pack moves its entries (characters.json is written first and put
+  back if the folder cannot be renamed, so the two never disagree); deleting
+  one, or removing a character, forgets the entries that point at it. The
+  choice lives server-side, not in card `customData` (as #12 first suggested),
+  because it must outlive the card.
+
 ### Saving
 
 Debounced `PUT /api/scene` 500 ms after a change in element versions (non-deleted
@@ -498,6 +625,19 @@ foreign `Origin` are refused and must be `application/json`.
 | `POST /api/focus {sessionId}` | 204 · 409 `no pane` |
 | `POST /api/resume {sessionId}` | 204 · 400 bad id · 404 unknown · 409 `live` / `no herdr` |
 | `POST /api/end {sessionId}` | 204 ended (SIGTERM) · 400 bad id · 409 not running · 501 source cannot end |
+| `GET /api/characters` | `{activePack, assigned, overrides, packs: [{id, name, builtIn, characters: [{id, kind, fileId, url?}], error?}], problems?}` |
+| `POST /api/characters/assign {pack, assign: {sessionId: id}}` | the same data, with picks for unknown packs, characters or sessions dropped · 400 malformed |
+| `POST /api/characters/override {sessionId, character: {pack, id} \| null}` | the same data · 400 |
+| `POST /api/characters/active {pack}` | the same data · 400 unknown pack |
+| `POST /api/packs {name, from?}` | creates a custom pack (empty, or a copy of `from`) · 400 bad name · 409 exists (in any letter case) |
+| `POST /api/packs/rename {pack, name}`, `/delete {pack}` | · 403 built-in · 404 unknown · 409 name taken |
+| `POST /api/packs/emoji {pack, emoji}` | adds one emoji (a single grapheme) · 400 · 403 built-in |
+| `POST /api/packs/image {pack, name, dataURL}` | adds a base64 png/gif/webp/jpeg/svg ≤ 1 MB whose bytes match its type · 400 · 403 |
+| `POST /api/packs/remove {pack, id}` | removes an emoji or image · 404 not in the pack |
+| `GET /api/packs/<pack>/<file>?v=<hash>` | one image, checked on its own like a listing would (valid pack folder, listable name, regular file, size, type) · `nosniff`, a sandboxing CSP; `private, max-age=31536000, immutable` when `v` is its content hash, else `no-store` |
+
+Body limits: `/api/packs/image` 1.5 MB, the other character and pack routes
+64 KB, refused from `content-length` before reading (413); other routes 50 MB.
 
 ## Security
 
@@ -515,7 +655,11 @@ foreign `Origin` are refused and must be `application/json`.
   guards against pid reuse). Ids are validated; commands and pids are derived
   server-side only.
 - Reads only `~/.claude/sessions`, transcript metadata lines, `.git/HEAD`, and
-  `/proc` (for the window raise). Writes only its state dir.
+  `/proc` (for the window raise). Writes only its state dir (scene, images,
+  `characters.json`, `packs/`). Pack names are validated against a strict
+  charset and matched against the folder listing before they touch a path;
+  image file names must be plain listable names (no separators, not hidden)
+  and regular files.
 
 ## Prior art
 

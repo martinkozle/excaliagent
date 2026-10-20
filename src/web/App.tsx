@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   CaptureUpdateAction,
@@ -37,10 +37,9 @@ import {
 import { CardMenu } from "./CardMenu.tsx";
 import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
-import { PlusIcon, SessionsIcon, TidyIcon, TopBar, TopButton } from "./TopBar.tsx";
+import { CharactersIcon, PlusIcon, SessionsIcon, TidyIcon, TopBar, TopButton } from "./TopBar.tsx";
 import { topBarLayout } from "./topbar.ts";
 import { reconcile } from "./reconcile.ts";
-import { LOGOS, logoFiles } from "./logos.ts";
 import {
   addLane,
   appendLanes,
@@ -55,11 +54,28 @@ import {
   tidyAllMoves,
   tidyMoves,
 } from "./lanes.ts";
+import { logoFiles } from "./logos.ts";
+import { emojiFileId, type CharactersData } from "../shared/packs.ts";
+import {
+  allowCharacter,
+  assignCharacters,
+  boardSessionIds,
+  CharacterSync,
+  removeCharacter,
+  emojiFileFor,
+  inheritMap,
+  isAppFile,
+  shuffleCharacter,
+} from "./characters.ts";
+import { CharacterPicker, CharactersPanel } from "./Characters.tsx";
 
 // Serve Excalidraw's local fonts from our own server; missing fonts (Xiaolai CJK) fall back to CDN.
 (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH = "/";
 
 const PICKER = "excaliagent-picker";
+const CHARACTERS = "excaliagent-characters";
+/** Drawn instead of a pack image that cannot be loaded. */
+const PLACEHOLDER = emojiFileId("❔");
 const SAVE_DEBOUNCE_MS = 500;
 const TICK_MS = 30_000;
 const measure = canvasMeasure();
@@ -74,9 +90,6 @@ function fontsReady(): Promise<unknown> {
 }
 
 type Elements = readonly ExcalidrawElement[];
-
-/** Logo images are part of the app: handed to Excalidraw on load, never stored. */
-const BUILT_IN_FILES: ReadonlySet<string> = new Set(Object.values(LOGOS).map((l) => l.fileId));
 
 const byId = (files: BinaryFileData[]): BinaryFiles => Object.fromEntries(files.map((f) => [f.id, f]));
 
@@ -105,6 +118,48 @@ function toViewport(box: { x: number; y: number; width: number; height: number }
   return { left: x, top: y, width: box.width * z, height: box.height * z };
 }
 
+function blobDataURL(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/**
+ * The app's own image files (logos, characters) for `ids`: emoji are drawn
+ * from their id, custom-pack images fetched from the server's pack folder. They
+ * are handed to Excalidraw and never stored in files/ or the scene.
+ */
+async function appFiles(
+  ids: readonly string[],
+  chars: CharactersData | null,
+  failed?: (id: string, why: unknown) => void,
+): Promise<BinaryFileData[]> {
+  const now = Date.now();
+  const out: BinaryFileData[] = [];
+  const urls = new Map<string, string>();
+  for (const p of chars?.packs ?? []) for (const c of p.characters) if (c.url) urls.set(c.fileId, c.url);
+  await Promise.all(
+    ids.map(async (id) => {
+      const emoji = emojiFileFor(id, now);
+      if (emoji) return void out.push(emoji);
+      const url = urls.get(id);
+      if (!url) return failed?.(id, "not in any pack");
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return failed?.(id, `${res.status}`);
+        const blob = await res.blob();
+        out.push({ id: id as BinaryFileData["id"], mimeType: blob.type as BinaryFileData["mimeType"], dataURL: (await blobDataURL(blob)) as BinaryFileData["dataURL"], created: now });
+      } catch (err) {
+        failed?.(id, err);
+      }
+    }),
+  );
+  return out;
+}
+
 export function App() {
   const [initialData, setInitialData] = useState<ExcalidrawInitialDataState | null>(null);
   const [excalidraw, setExcalidraw] = useState<ExcalidrawImperativeAPI | null>(null);
@@ -116,6 +171,23 @@ export function App() {
   /** Dropping a lone card on a lane's title band stacks it in the lane (setting, per browser). */
   const [laneDrop, setLaneDrop] = useState(() => readLaneDrop(settingsStore()));
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
+  /** Card whose character picker is open. */
+  const [pickFor, setPickFor] = useState<string | null>(null);
+  /** Packs and character state; null until loaded (or when the server could not provide it). */
+  const [chars, setChars] = useState<CharactersData | null>(null);
+  /** The board's copy of the character state; keeps overlapping requests consistent (characters.ts). */
+  const charSync = useMemo(
+    () => new CharacterSync({ assign: (pack, picks) => api.assignCharacters(pack, picks) }, setChars),
+    [],
+  );
+  /** Pack images that could not be loaded: drawn as a placeholder, retried on the next tick. */
+  const failedImages = useRef(new Set<string>());
+  /** Pack images already reported in the console (once each). */
+  const reported = useRef(new Set<string>());
+  /** Session id → file id of the character last drawn on its card. */
+  const drawn = useRef(new Map<string, string>());
+  /** App files handed to Excalidraw (or being fetched). */
+  const appFilesAdded = useRef(new Set<string>());
 
   const live = useRef<Session[]>([]);
   const known = useRef(new Map<string, Session>());
@@ -126,22 +198,31 @@ export function App() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
+    const charsLoaded = api.characters().catch((err: unknown) => {
+      console.error("excaliagent: could not load characters", err);
+      return null;
+    });
     api
       .loadScene()
       .then(async (scene) => {
         const elements = restoreElements(scene.elements as ExcalidrawElement[], null);
         lastSaved.current = saveHash(elements.filter((e) => !e.isDeleted));
-        const ids = imageFileIds(elements).filter((id) => !BUILT_IN_FILES.has(id));
+        const allIds = imageFileIds(elements);
+        const ids = allIds.filter((id) => !isAppFile(id));
         const files = await api.loadFiles(ids).catch((err: unknown) => {
           console.error("excaliagent: could not load images", err);
           return [];
         });
         for (const f of files) storedFiles.current.add(f.id);
+        const loadedChars = await charsLoaded;
+        if (loadedChars) charSync.set(loadedChars);
+        const ownFiles = await appFiles(allIds.filter(isAppFile), loadedChars);
+        for (const f of ownFiles) appFilesAdded.current.add(f.id);
         const bg = scene.appState.viewBackgroundColor;
         setInitialData({
           elements,
           appState: typeof bg === "string" ? { viewBackgroundColor: bg } : {},
-          files: byId([...logoFiles(Date.now()), ...files]),
+          files: byId([...logoFiles(Date.now()), ...ownFiles, ...files]),
           scrollToContent: true,
         });
       })
@@ -153,7 +234,7 @@ export function App() {
 
   /** Pasted images: their data lives apart from the elements, stored once per file. */
   const uploadFiles = useCallback((elements: Elements, files: BinaryFiles) => {
-    const pending = filesToUpload(elements, files, storedFiles.current, BUILT_IN_FILES);
+    const pending = filesToUpload(elements, files, storedFiles.current, isAppFile);
     if (!pending.length) return;
     for (const f of pending) storedFiles.current.add(f.id);
     api.saveFiles(pending).catch((err: unknown) => {
@@ -183,6 +264,67 @@ export function App() {
     else saveTimer.current = setTimeout(run, SAVE_DEBOUNCE_MS);
   }, [excalidraw, uploadFiles]);
 
+  /** Hand Excalidraw the app files it lacks (emoji at once, pack images once fetched). */
+  const ensureFiles = useCallback(
+    (ids: Iterable<string>) => {
+      const ex = excalidraw;
+      if (!ex) return;
+      const missing = [...new Set(ids)].filter(
+        (id) => !appFilesAdded.current.has(id) && !failedImages.current.has(id) && !ex.getFiles()[id],
+      );
+      if (!missing.length) return;
+      for (const id of missing) appFilesAdded.current.add(id);
+      const failed = (id: string, why: unknown) => {
+        failedImages.current.add(id);
+        if (!reported.current.has(id)) {
+          reported.current.add(id);
+          console.warn("excaliagent: a character image could not be loaded; showing a placeholder", id, why);
+        }
+      };
+      void appFiles(missing, charSync.data, failed).then((files) => {
+        for (const id of missing) if (!files.some((f) => f.id === id)) appFilesAdded.current.delete(id);
+        if (files.length) ex.addFiles(files);
+        // Swap the placeholder in for images that failed.
+        if (missing.some((id) => failedImages.current.has(id))) syncRef.current();
+      });
+    },
+    [excalidraw, charSync],
+  );
+
+  /**
+   * Each card's character (characters.ts): override, else the remembered pick in
+   * the active pack, else a fresh probe, which is remembered server-side.
+   * Undefined while characters are not loaded: reconcile then leaves them alone.
+   */
+  const assignNow = useCallback(
+    (elements: Elements, sessions: Session[], add?: Session[]): Map<string, string> | undefined => {
+      const data = charSync.data;
+      if (!data) return undefined;
+      const packs = new Map(data.packs.map((p) => [p.id, p]));
+      const a = assignCharacters({
+        pack: packs.get(data.activePack),
+        packs,
+        sessionIds: boardSessionIds(elements, live.current, add),
+        remembered: charSync.remembered(data.activePack),
+        overrides: data.overrides,
+        inherit: inheritMap(sessions),
+      });
+      const fileIds = new Map(
+        [...a.chars].map(([sid, c]) => [sid, failedImages.current.has(c.fileId) ? PLACEHOLDER : c.fileId]),
+      );
+      drawn.current = new Map([...a.chars].map(([sid, c]) => [sid, c.fileId]));
+      ensureFiles(fileIds.values());
+      // New picks count at once and are persisted (and resent until confirmed).
+      if (Object.keys(a.remember).length) charSync.remember(data.activePack, a.remember);
+      for (const [sid, ref] of Object.entries(a.overrides))
+        charSync.request(() => api.overrideCharacter(sid, ref)).catch((err: unknown) =>
+          console.error("excaliagent: could not carry a character over to a continued session", err),
+        );
+      return fileIds;
+    },
+    [ensureFiles, charSync],
+  );
+
   /** Bring the scene in line with what we know about sessions. */
   const sync = useCallback(
     (add?: Session[]) => {
@@ -205,16 +347,43 @@ export function App() {
       }
 
       for (const s of add ?? []) known.current.set(s.id, s);
-      const result = reconcile(mergeSessions(live.current, known.current), elements, Date.now(), defaultGen, {
+      const sessions = mergeSessions(live.current, known.current);
+      const characters = assignNow(elements, sessions, add);
+      const result = reconcile(sessions, elements, Date.now(), defaultGen, {
         add,
         measure,
+        characters,
       });
       if (!result.changed) return;
       ex.updateScene({ elements: result.elements, captureUpdate: CaptureUpdateAction.NEVER });
       save(true);
     },
-    [excalidraw, save],
+    [excalidraw, save, assignNow],
   );
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+
+  /** A character request from a user action: apply its answer (unless a newer one came) and redraw. */
+  const charRequest = useCallback(
+    async (fn: () => Promise<CharactersData>): Promise<CharactersData | null> => {
+      const d = await charSync.request(fn);
+      sync();
+      return d;
+    },
+    [charSync, sync],
+  );
+
+  /** Re-read packs and choices (hand-edited folders, another tab); retry images that failed. */
+  const refreshChars = useCallback(() => {
+    charSync
+      .request(() => api.characters())
+      .then(() => {
+        failedImages.current.clear();
+        syncRef.current();
+      })
+      .catch(() => {});
+    charSync.flush();
+  }, [charSync]);
 
   useEffect(() => {
     if (excalidraw) void fontsReady().then(() => setFontsLoaded(true));
@@ -241,6 +410,8 @@ export function App() {
     let ticks = 0;
     const timer = setInterval(() => {
       if (++ticks % 10 === 0) asked.current.clear();
+      // Characters: re-read (packs edited by hand, or failed to load at startup) and resend unconfirmed picks.
+      refreshChars();
       sync();
     }, TICK_MS);
     (window as unknown as { __excaliagent: unknown }).__excaliagent = { excalidraw, sync };
@@ -249,7 +420,7 @@ export function App() {
       clearInterval(timer);
       document.fonts.removeEventListener("loadingdone", onFonts);
     };
-  }, [excalidraw, fontsLoaded, sync]);
+  }, [excalidraw, fontsLoaded, sync, refreshChars]);
 
   const onChange = useCallback(
     (elements: Elements, _appState: AppState, files: BinaryFiles) => {
@@ -459,12 +630,79 @@ export function App() {
         case "end":
           void endSession(ex, sessionId, sessionFor(sessionId));
           break;
+        case "character":
+          if (!charSync.data) {
+            ex.setToast({ message: "Characters are not available right now.", duration: 3000, closable: true });
+            break;
+          }
+          setPickFor(sessionId);
+          break;
       }
     },
     [excalidraw, menuFor, sessionFor, tidyLane],
   );
   const excaliHost = menuFor || dropHint ? wrapper.current?.querySelector<HTMLElement>(".excalidraw") : null;
   const menuHost = menuFor ? excaliHost : null;
+  const pickerHost = pickFor ? wrapper.current?.querySelector<HTMLElement>(".excalidraw") : null;
+
+  const toast = useCallback(
+    (message: string) => excalidraw?.setToast({ message, duration: 5000, closable: true }),
+    [excalidraw],
+  );
+  const closePicker = useCallback(() => setPickFor(null), []);
+  /** Does a card of the session show a character? (None in the picker otherwise.) */
+  const shownCharacter = (sessionId: string) =>
+    !!excalidraw
+      ?.getSceneElements()
+      .some((e) => e.customData?.excaliagent?.kind === "card-character" && e.customData.excaliagent.sessionId === sessionId);
+  /**
+   * Picker → a character, or Reset to automatic: store the override (or drop
+   * it); a card whose character was removed gets one again. Then redraw.
+   */
+  const pickCharacter = useCallback(
+    (sessionId: string, character: { pack: string; id: string } | null) => {
+      setPickFor(null);
+      const ex = excalidraw;
+      if (ex) {
+        const els = ex.getSceneElementsIncludingDeleted();
+        const next = allowCharacter(els, sessionId, defaultGen, Date.now());
+        if (next !== els) ex.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.NEVER });
+      }
+      charRequest(() => api.overrideCharacter(sessionId, character)).catch((err: unknown) =>
+        toast(`Could not change the character: ${(err as Error).message}`),
+      );
+    },
+    [excalidraw, charRequest, toast],
+  );
+  /** Picker → None: remove the character from the card (undoable); it stays off. */
+  const noCharacter = useCallback(
+    (sessionId: string) => {
+      setPickFor(null);
+      const ex = excalidraw;
+      if (!ex) return;
+      const els = ex.getSceneElementsIncludingDeleted();
+      const next = removeCharacter(els, sessionId, defaultGen, Date.now());
+      if (next === els) return;
+      ex.updateScene({ elements: next, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+      save(true);
+    },
+    [excalidraw, save],
+  );
+  const shuffleFor = useCallback(
+    (sessionId: string) => {
+      const data = charSync.data;
+      if (!data) return;
+      const pack = data.packs.find((p) => p.id === data.activePack);
+      const onBoard = new Set(drawn.current.values());
+      const current = drawn.current.get(sessionId);
+      const used = new Set(pack?.characters.filter((c) => onBoard.has(c.fileId)).map((c) => c.id));
+      const mine = pack?.characters.find((c) => c.fileId === current);
+      const pick = shuffleCharacter(pack, used, mine && pack ? { pack: pack.id, id: mine.id } : undefined, Math.random);
+      if (pick) pickCharacter(sessionId, pick);
+      else toast("The active pack is empty.");
+    },
+    [pickCharacter, toast, charSync],
+  );
 
   const refreshPicker = useCallback(() => {
     api
@@ -491,7 +729,7 @@ export function App() {
         excalidrawAPI={setExcalidraw}
         onChange={onChange}
         renderTopRightUI={(isMobile, appState) => (
-          <TopBar layout={topBarLayout(appState.width, isMobile, 3)}>
+          <TopBar layout={topBarLayout(appState.width, isMobile, 4)}>
             {!connected && <span className="excaliagent-offline">server offline</span>}
             <TopButton
               icon={PlusIcon}
@@ -507,6 +745,14 @@ export function App() {
               title="Stack the cards of every lane and the inbox (one undo step)"
               onClick={tidyAll}
             />
+            <Sidebar.Trigger
+              name={CHARACTERS}
+              icon={CharactersIcon}
+              title="Character packs for the cards"
+              onToggle={(open) => open && refreshChars()}
+            >
+              Characters
+            </Sidebar.Trigger>
             <Sidebar.Trigger
               name={PICKER}
               icon={SessionsIcon}
@@ -573,6 +819,10 @@ export function App() {
               ))}
           </div>
         </Sidebar>
+        <Sidebar name={CHARACTERS}>
+          <Sidebar.Header>Characters</Sidebar.Header>
+          <CharactersPanel data={chars} request={charRequest} onError={(m) => toast(m)} />
+        </Sidebar>
       </Excalidraw>
       {menuFor && menuHost && (
         <CardMenu
@@ -583,6 +833,19 @@ export function App() {
         />
       )}
       {dropHint && excaliHost && <LaneDropHint hint={dropHint} host={excaliHost} />}
+      {pickFor && pickerHost && chars && (
+        <CharacterPicker
+          host={pickerHost}
+          data={chars}
+          currentFileId={shownCharacter(pickFor) ? drawn.current.get(pickFor) : undefined}
+          hasOverride={!!chars.overrides[pickFor]}
+          onPick={(pack, id) => pickCharacter(pickFor, { pack, id })}
+          onNone={() => noCharacter(pickFor)}
+          onShuffle={() => shuffleFor(pickFor)}
+          onReset={() => pickCharacter(pickFor, null)}
+          onClose={closePicker}
+        />
+      )}
     </div>
   );
 }

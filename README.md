@@ -12,12 +12,13 @@ and never moves, resizes, or edits anything else on its own; cards move only
 when you drop one on a lane title or ask for a tidy-up.
 
 ```
-Fix flaky checkout test       ✳   ← title (handwritten, larger), harness logo
-demo-app · fix/flaky              ← repo · branch
-needs user: input needed · 2m     ← status · what it waits for · last activity
-cache warm 41m                    ← prompt-cache warmth
-herdr: demo-app › oauth           ← herdr workspace › tab
-PR #12                            ← last PR link
+🐔 Fix flaky checkout       ✳   ← character, title (handwritten, larger), harness logo
+   test
+demo-app · fix/flaky             ← repo · branch
+needs user: input needed · 2m    ← status · what it waits for · last activity
+cache warm 41m                   ← prompt-cache warmth
+herdr: demo-app › oauth          ← herdr workspace › tab
+PR #12                           ← last PR link
 ```
 
 | Color | Meaning |
@@ -73,9 +74,23 @@ bookmark. Running it again while a board is up just opens that board.
   can be resumed).
 - A **PR link** (GitHub, Bitbucket, GitLab) shows on the card; the card's link
   icon opens it.
+- Every card has a **character**, so you remember which agent is which: an
+  animal by default, different for every card on the board, and the same one
+  each time that session comes back. Right-click → *Change character…* picks
+  one by hand (or *Shuffle*, *Reset to automatic*, or *None*; deleting the
+  character from a card also keeps it off). The **Characters** panel
+  (top right) switches the pack (Animals, Cats & friends, Sea, Fantasy, Food)
+  and makes your own packs from emoji and images: type or paste an emoji, or
+  paste, drop or upload png, gif, webp, jpeg or svg files (up to 1 MB each). A
+  custom pack is a folder, `packs/<name>/` in the state directory, so you can
+  also drop image files there by hand, and list emoji in its `pack.json` as
+  `{"emoji": ["🧟", "👻"]}`.
+
+![The Characters panel: packs, and the characters of the active one](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/characters.png)
+
 - The board is saved to `$XDG_STATE_HOME/excaliagent/scene.json`
   (default `~/.local/state/excaliagent/`), pasted images under `files/` next
-  to it.
+  to it, character choices in `characters.json` and your packs under `packs/`.
 - **Start over**: main menu → *Reset the canvas* (undoable) lays out a fresh
   board with the live sessions. Or try a clean board without touching yours:
   `npx excaliagent --state-dir /tmp/excaliagent-fresh`.
@@ -98,8 +113,8 @@ See `npx excaliagent --help`.
   `claude --resume <id>` in a new herdr pane, and stop a session when you ask
   (right-click → Stop session, confirmed; it exits as if its terminal closed).
   It never types into a running session.
-- Images you paste onto the board are stored next to the scene, in the
-  state directory.
+- Images you paste onto the board, and the images of your character packs,
+  are stored next to the scene, in the state directory.
 - The only outside request: Chinese, Japanese or Korean text on the board loads
   Excalidraw's CJK font from esm.sh (it is not bundled, to keep the package
   small). Everything else, including all other fonts, is served locally.
@@ -137,4 +152,5 @@ name.
 
 Docs: [product](docs/product.md), [design](docs/design.md), [roadmap](docs/roadmap.md). Agents start at [AGENTS.md](AGENTS.md).
 
-MIT licensed. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to.
+MIT licensed. Built-in characters are Unicode emoji, drawn by your system's
+emoji font. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to.

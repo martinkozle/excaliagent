@@ -16,6 +16,14 @@
 // - logo (image): never patched; only customData.cardId after a copy-paste. A
 //   card without one (deleted, or made before logos) gets it at its rect's
 //   current top-right corner.
+// - character (image, only when `opts.characters` is given): only its fileId
+//   changes, when the session's character does. When the session has none
+//   (empty pack) it is removed and the rect's `charLayout` flag cleared. A card
+//   without the flag gets one at its rect's current top-left corner, the flag
+//   is set, and a title still at the old app spot (OLD_TITLE_X, PAD) moves to
+//   TITLE_X; a title anywhere else stays. A card whose session is unknown gets
+//   no move at all: the character only if it would not cover the title. A card
+//   with the flag but no character: the user removed it; never recreated.
 // Lanes ({kind:"lane"}) are created with a new board's inbox and never touched.
 // A card whose session is absent from `sessions` is restyled dormant; its texts
 // and link are left alone (nothing to regenerate them from).
@@ -44,9 +52,14 @@ import {
   type Measure,
   isInbox,
   makeCard,
+  makeCardCharacter,
   makeCardLogo,
   makeCardPart,
   makeInbox,
+  AVATAR_SIZE,
+  OLD_TITLE_X,
+  PAD,
+  type CardMeta,
   partBox,
   TITLE_SIZE,
   DETAIL_SIZE,
@@ -132,12 +145,23 @@ function retarget(
   return { elements: out ?? elements, touched, retargeted };
 }
 
+export interface ReconcileOptions {
+  /** Sessions added from the picker: spawned even when dormant. */
+  add?: readonly Session[];
+  measure?: Measure;
+  /**
+   * Session id → file id of its character (characters.ts). Absent: character
+   * data not loaded yet, so characters are neither created nor changed.
+   */
+  characters?: ReadonlyMap<string, string>;
+}
+
 export function reconcile(
   sessions: readonly Session[],
   elements: readonly ExcalidrawElement[],
   now: number,
   gen: Gen,
-  opts: { add?: readonly Session[]; measure?: Measure } = {},
+  opts: ReconcileOptions = {},
 ): ReconcileResult {
   const pre = retarget(elements, sessionMap(sessions, opts.add), now, gen);
   const r = reconcileCards(sessions, pre.elements, now, gen, opts);
@@ -153,7 +177,7 @@ export function reconcile(
   };
 }
 
-const PARTS: CardPartKind[] = ["card-title", "card-details", "card-logo"];
+const PARTS: CardPartKind[] = ["card-character", "card-title", "card-details", "card-logo"];
 
 type Part = ExcalidrawTextElement | ExcalidrawImageElement;
 
@@ -162,7 +186,7 @@ function reconcileCards(
   elements: readonly ExcalidrawElement[],
   now: number,
   gen: Gen,
-  opts: { add?: readonly Session[]; measure?: Measure },
+  opts: ReconcileOptions,
 ): Omit<ReconcileResult, "retargeted"> {
   const measure = opts.measure ?? estimateMeasure;
   const byId = sessionMap(sessions, opts.add);
@@ -253,6 +277,47 @@ function reconcileCards(
         Object.assign(rectChanges, { height, customData: { ...rect0.customData, excaliagent: { ...meta, appHeight: height } } });
     }
 
+    // Character: create, remove, or leave alone; and whether the title moves right of it.
+    const charPart = assigned.get(`${rect0.id}|card-character`) as ExcalidrawImageElement | undefined;
+    const titlePart = assigned.get(`${rect0.id}|card-title`) as ExcalidrawTextElement | undefined;
+    const wantChar = opts.characters?.get(meta.sessionId);
+    let charLayout = meta.charLayout === 1;
+    let createChar: string | undefined;
+    let deleteChar = false;
+    let moveTitle = false;
+    if (opts.characters) {
+      if (charPart) {
+        if (wantChar) charLayout = true;
+        else {
+          deleteChar = true;
+          charLayout = false;
+        }
+      } else if (wantChar && !charLayout) {
+        const ax = rect0.x + PAD;
+        const ay = rect0.y + PAD;
+        const atOldSpot =
+          !!titlePart && Math.abs(titlePart.x - (rect0.x + OLD_TITLE_X)) < 0.5 && Math.abs(titlePart.y - ay) < 0.5;
+        const covers =
+          !!titlePart &&
+          titlePart.x < ax + AVATAR_SIZE &&
+          titlePart.x + titlePart.width > ax &&
+          titlePart.y < ay + AVATAR_SIZE &&
+          titlePart.y + titlePart.height > ay;
+        // Unknown session: its texts are never touched, so only add what fits.
+        if (s || !covers) {
+          createChar = wantChar;
+          moveTitle = !!s && atOldSpot;
+          charLayout = true;
+        }
+      }
+    }
+    if (charLayout !== (meta.charLayout === 1)) {
+      const cur = ((rectChanges.customData as { excaliagent?: CardMeta } | undefined)?.excaliagent ?? meta) as CardMeta;
+      const { charLayout: _old, ...rest } = cur;
+      const next: CardMeta = charLayout ? { ...rest, charLayout: 1 } : rest;
+      Object.assign(rectChanges, { customData: { ...rect0.customData, excaliagent: next } });
+    }
+
     let rect = rect0;
     if (Object.keys(rectChanges).length) {
       rect = bump(rect0, rectChanges);
@@ -264,6 +329,31 @@ function reconcileCards(
     let titleLinesChanged = false;
     for (const kind of PARTS) {
       const part = assigned.get(`${rect.id}|${kind}`);
+      if (kind === "card-character") {
+        if (part) {
+          const img = part as ExcalidrawImageElement;
+          const m = cardPartMeta(img)!;
+          if (deleteChar) {
+            put(bump(img, { isDeleted: true }));
+            cardTouched = true;
+            continue;
+          }
+          const changes: Partial<ExcalidrawImageElement> = {};
+          if (wantChar && img.fileId !== wantChar) Object.assign(changes, { fileId: wantChar, status: "saved" });
+          if (m.cardId !== rect.id) Object.assign(changes, { customData: { ...img.customData, excaliagent: { ...m, cardId: rect.id } } });
+          if (Object.keys(changes).length) {
+            put(bump(img, changes));
+            cardTouched = true;
+          }
+        } else if (createChar) {
+          const made = makeCardCharacter(rect, meta.sessionId, createChar, gen, now);
+          const at = indexOf.get(rect.id)!;
+          inserts.set(at, [...(inserts.get(at) ?? []), made]);
+          touched.push(made.id);
+          cardTouched = true;
+        }
+        continue;
+      }
       if (kind === "card-logo") {
         if (part) {
           const m = cardPartMeta(part)!;
@@ -294,10 +384,13 @@ function reconcileCards(
         if (kind === "card-title") {
           titleLines = lineCount(want ?? t.originalText);
           titleLinesChanged = titleLines !== lineCount(t.originalText);
-        } else if (titleLinesChanged) {
-          // Keep details just below the (re-wrapped) title, relative to the rect's current position.
+        }
+        if ((kind === "card-title" && moveTitle) || (kind === "card-details" && titleLinesChanged)) {
+          // The title moves right of a new character (only from the old app
+          // spot); details stay just below a re-wrapped title. Both relative to
+          // the rect's current position.
           const { dx, dy } = partOffset(kind, titleLines);
-          Object.assign(changes, { x: rect.x + dx, y: rect.y + dy });
+          if (t.x !== rect.x + dx || t.y !== rect.y + dy) Object.assign(changes, { x: rect.x + dx, y: rect.y + dy });
         }
         const m = cardPartMeta(t)!;
         if (m.cardId !== rect.id) changes.customData = { ...t.customData, excaliagent: { ...m, cardId: rect.id } };
@@ -349,7 +442,7 @@ function reconcileCards(
     }
     const session = byId.get(s.id) ?? s;
     const height = cardHeight(lineCount(titleText(session, measure)));
-    const card = makeCard(session, nextSlot(inbox, result, height), gen, now, measure);
+    const card = makeCard(session, nextSlot(inbox, result, height), gen, now, measure, opts.characters?.get(s.id));
     result.push(...card);
     touched.push(...card.map((e) => e.id));
     carded.add(s.id);
