@@ -464,7 +464,8 @@ test("the top-right buttons never overlap: labels collapse into tooltips on narr
   const shown: Record<number, number> = {};
   for (const width of [1400, 1160, 1000, 935, 800, 600, 400]) {
     await page.setViewportSize({ width, height: 800 });
-    await page.waitForTimeout(300);
+    // Excalidraw lays out for the size it has in its state (a later commit under load).
+    await expect.poll(() => page.evaluate(() => (window as any).__excaliagent.excalidraw.getAppState().width)).toBe(width);
     shown[width] = await expectTopButtonsClean(page);
   }
   expect(shown).toEqual({ 1400: 3, 1160: 3, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
@@ -499,7 +500,15 @@ test.describe("lining cards up in a lane", () => {
         appState: { scrollX: 0, scrollY: 0, zoom: { value: 1 }, selectedElementIds: {}, selectedGroupIds: {} },
       }),
     );
-    await page.waitForTimeout(200);
+    // Points are computed from the app state: wait until it has the view (a later commit under load).
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const s = (window as any).__excaliagent.excalidraw.getAppState();
+          return [s.scrollX, s.scrollY, s.zoom.value, Object.keys(s.selectedElementIds).length];
+        }),
+      )
+      .toEqual([0, 0, 1, 0]);
   }
   /** Viewport point of a scene point. */
   const toView = (page: Page, x: number, y: number) =>
@@ -585,10 +594,8 @@ test.describe("lining cards up in a lane", () => {
       await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
     });
     await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
-    await expect.poll(() => card(ID.needsUser)?.y).not.toBe(before.y);
-    await page.waitForTimeout(300);
-    const after = card(ID.needsUser)!;
-    expect(after.x).toBeCloseTo(before.x + (lane.x + lane.width / 2 - from.x), 0);
+    // The drop is saved after a debounce; a save from mid-drag may come first.
+    await expect.poll(() => card(ID.needsUser)?.x).toBeCloseTo(before.x + (lane.x + lane.width / 2 - from.x), 0);
   });
 
   test("as soon as a card is dragged, every visible lane title shows a faint hint; gone after the drop", async ({ page }) => {
