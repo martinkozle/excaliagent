@@ -18,6 +18,16 @@ context I could have continued cheaply.
 The author first. Published as an open-source npm package for anyone running
 several Claude Code, Codex or OpenCode sessions, with or without herdr.
 
+## What it is
+
+A 2D board where my agent sessions live as cards I place myself. Placement is
+the memory: a session is "the one in the corner by the auth notes, with the
+penguin". That spatial board is the core of the product and the one thing it
+must keep doing well. Everything else (status, characters, lanes, resume, more
+harnesses, an integrated terminal, whatever comes next) is welcome on top of
+it. Features are added freely; the board is not meant to stay minimal, and
+nothing below rules an idea out for good.
+
 ## Goals
 
 1. A 2D canvas where every session I care about is a card I can drag anywhere.
@@ -31,10 +41,8 @@ several Claude Code, Codex or OpenCode sessions, with or without herdr.
 
 ## Non-goals
 
-- Typing prompts or keystrokes into a session from the board.
-- Replacing herdr or FleetView as a session browser. The picker stays minimal.
-- Hosting, accounts, collaboration, sharing.
-- Auto-layout or any status-driven movement of cards.
+- Auto-layout or any status-driven movement of cards: placement is the memory,
+  so the app moves cards only when I ask.
 
 ## User stories
 
