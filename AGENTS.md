@@ -1,7 +1,10 @@
 # excaliagent agent guidance
 
-A local Excalidraw board where each coding-agent session (Claude Code, Codex,
-OpenCode) is a card. Read these before changing anything:
+A local 2D board (Excalidraw) where each coding-agent session (Claude Code,
+Codex, OpenCode) is a card the user places, so the place reminds them what the
+session is. The spatial board is the core; any feature idea is fair game. The
+invariants below describe how the board works today: a feature may change one
+on purpose, with the docs updated in the same change, never by accident. Read these before changing anything:
 
 - `docs/product.md`: the goal state. What the board must do and must never do.
 - `docs/design.md`: architecture, decisions with their reasons, and the

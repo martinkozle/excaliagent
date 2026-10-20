@@ -1,7 +1,7 @@
 {
   "name": "excaliagent",
   "version": "0.3.0",
-  "description": "A spatial Excalidraw scratchboard for your coding-agent sessions",
+  "description": "A 2D Excalidraw board for your coding agents: every session is a card you place",
   "type": "module",
   "license": "MIT",
   "author": "Martin Popovski",
@@ -52,6 +52,8 @@
   "keywords": [
     "claude",
     "claude-code",
+    "codex",
+    "opencode",
     "excalidraw",
     "herdr",
     "agents",

@@ -1,7 +1,13 @@
 # excaliagent
 
-A spatial scratchboard for your coding-agent sessions (Claude Code, OpenAI
-Codex and OpenCode), on an Excalidraw canvas.
+A 2D board for your coding agents, on an Excalidraw canvas.
+
+When you run many coding agents at once, it is hard to remember which one was
+doing what. excaliagent is a memory palace for your agents: each session is a
+card you place on a canvas, and when you come back, its place reminds you what
+it was about.
+
+Works with Claude Code, OpenAI Codex and OpenCode.
 
 ![The board: session cards triaged into lanes](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/board.png)
 
@@ -31,6 +37,13 @@ PR #12                           ← last PR link
 | dashed, pale | dormant (not running) |
 
 ![Right-click on a card: the excaliagent section next to the Excalidraw menu](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/card-menu.png)
+
+## What it is for
+
+The spatial board is the point. Everything else (live status, characters,
+lanes, jumping to a pane, resuming, more agents) is there to make that board a
+better place to keep your sessions. Beyond that, nothing is off the table: new
+features and ideas of any kind are welcome on top of it.
 
 ## Supported agents
 
@@ -73,8 +86,7 @@ bookmark. Running it again while a board is up just opens that board.
   lanes next to it (To Do, In Progress, Review, Blocked, Parked, Done, and two
   blank ones to name yourself); they are plain shapes you can move, resize,
   rename (double-click) or delete. **+ Lane** (top right) adds one more at the
-  right end. On an older
-  board, add the whole set from the main menu: *Add starter lanes*.
+  right end.
 - **Line cards up in a lane**: while you drag a card, every lane title shows a
   faint *drop to stack* hint; drop the card on one (it lights up) and the card
   goes into the lane's column, below the lowest card there.
