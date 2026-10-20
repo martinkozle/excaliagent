@@ -239,7 +239,7 @@ describe("makeInbox", () => {
     const rect = els.find((e) => e.type === "rectangle")!;
     expect(rect.customData).toEqual({ excaliagent: { kind: "inbox" } });
     const label = els.find((e) => e.type === "text");
-    expect(label).toMatchObject({ text: "inbox", containerId: rect.id, verticalAlign: "top" });
+    expect(label).toMatchObject({ text: "Inbox", containerId: rect.id, verticalAlign: "top" });
     expect(label!.y).toBeGreaterThan(rect.y);
   });
 });

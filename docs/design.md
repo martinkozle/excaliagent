@@ -264,7 +264,7 @@ re-fitted, so a late font load cannot leave clipped text.
 ### Inbox and lanes (`src/web/cards.ts`, `src/web/inbox.ts`, `src/web/lanes.ts`)
 
 - **Inbox**: a grey dashed, transparent rectangle with
-  `customData.excaliagent = {kind:"inbox"}` and the title "inbox" bound inside
+  `customData.excaliagent = {kind:"inbox"}` and the title "Inbox" bound inside
   it (`{kind:"inbox-label"}`, see titles below). New boards get a tall one at
   (40, 80): 660×1664, i.e. 2 cards wide × 8 rows (20 px gaps) under a 56 px
   header (`AREA_HEADER`). The user moves and resizes it. New cards take the

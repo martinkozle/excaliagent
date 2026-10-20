@@ -466,7 +466,7 @@ export function makeTitledArea(
   return [{ ...area, boundElements: [{ type: "text", id: text.id }] }, text];
 }
 
-/** The inbox rectangle with "inbox" as its title. */
+/** The inbox rectangle with "Inbox" as its title. */
 export function makeInbox(
   gen: Gen,
   now: number,
@@ -478,7 +478,7 @@ export function makeInbox(
     now,
     { ...at, width: INBOX_W, height: INBOX_H },
     { excaliagent: { kind: "inbox" } satisfies InboxMeta },
-    "inbox",
+    "Inbox",
     { excaliagent: { kind: "inbox-label" } satisfies InboxMeta },
     measure,
   );

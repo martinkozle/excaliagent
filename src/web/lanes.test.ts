@@ -57,7 +57,7 @@ describe("starter board", () => {
 
   it("the inbox title sits inside the inbox too", () => {
     const t = els.find((e) => kind(e) === "inbox-label") as ExcalidrawTextElement;
-    expect(t).toMatchObject({ text: "inbox", containerId: inbox.id, verticalAlign: "top" });
+    expect(t).toMatchObject({ text: "Inbox", containerId: inbox.id, verticalAlign: "top" });
     expect(inbox.boundElements).toEqual([{ type: "text", id: t.id }]);
   });
 
