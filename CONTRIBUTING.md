@@ -48,5 +48,6 @@ npm run build && node bin/excaliagent.js
 
 ## Releasing
 
-`npm publish` runs `npm run build` first (`prepack`), so the tarball contains
+`npm publish` runs `npm run build` first (`prepare`; it also builds installs
+straight from git, `npx github:martinkozle/excaliagent`), so the tarball contains
 `dist/server` and `dist/web`. Check with `npm pack --dry-run`.
