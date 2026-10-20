@@ -368,8 +368,33 @@ test.describe("the harness logo is a button", () => {
     await expect(page.locator("textarea.excalidraw-wysiwyg")).toHaveCount(0);
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("claude --resume 22222222-0000-4000-8000-000000000001");
     // The click leaves nothing selected (it was nothing before), and adds no undo step.
-    await page.waitForTimeout(200);
-    expect(await selectedIds(page)).toEqual([]);
+    await expect.poll(() => selectedIds(page)).toEqual([]);
+  });
+
+  test("a double-click on the logo opens the session once, however slow", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await addDormant(page);
+    let resumes = 0;
+    page.on("request", (r) => {
+      if (r.url().endsWith("/api/resume")) resumes++;
+    });
+    const logo = await logoPoint(page, ID.dormantA);
+    await page.mouse.dblclick(logo.x, logo.y);
+    await expect(page.getByText(/claude --resume 22222222-0000-4000-8000-000000000001/)).toBeVisible();
+    await expect.poll(() => resumes).toBe(1);
+    // A while later, a double-click whose second click comes (or is handled) late:
+    // the browser still counts it as one, and so does the board.
+    await page.waitForTimeout(1000);
+    await page.mouse.down({ clickCount: 1 });
+    await page.mouse.up({ clickCount: 1 });
+    await page.waitForTimeout(900);
+    await page.mouse.down({ clickCount: 2 });
+    await page.mouse.up({ clickCount: 2 });
+    await expect.poll(() => resumes).toBe(2);
+    await page.waitForTimeout(500);
+    expect(resumes).toBe(2);
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toHaveCount(0);
+    await expect.poll(() => selectedIds(page)).toEqual([]);
   });
 
   test("a logo click puts the selection back the way it was", async ({ page, context }) => {
@@ -382,8 +407,7 @@ test.describe("the harness logo is a button", () => {
     const logo = await logoPoint(page, ID.dormantA);
     await page.mouse.click(logo.x, logo.y);
     await expect(page.getByText(/claude --resume 22222222-0000-4000-8000-000000000001/)).toBeVisible();
-    await page.waitForTimeout(200);
-    expect(await selectedIds(page)).toEqual(before);
+    await expect.poll(() => selectedIds(page)).toEqual(before);
   });
 
   test("a single click elsewhere on the card does nothing; dragging from the logo still moves the card", async ({ page }) => {

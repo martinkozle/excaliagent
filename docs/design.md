@@ -703,10 +703,11 @@ their rotated bounds), and a fixed card being dragged is never placed.
   unfilled outlines and frames do not (as Excalidraw's own hit test). The
   pointerup counts as a click only on the same logo with at most 4 px of
   movement, so a drag that starts on the logo still just moves the card
-  (Excalidraw selects and drags it as before). A click does not leave the
-  card selected: Excalidraw selects it on pointerdown, so the selection from
-  before the press (`selectedElementIds`, `selectedGroupIds`; usually
-  nothing) is put back on the next frame after the pointerup, with
+  (Excalidraw selects and drags it as before); the jump itself runs on the
+  `click` event that follows. A click does not leave the card selected:
+  Excalidraw selects it on pointerdown, so the selection from before the press
+  (`selectedElementIds`, `selectedGroupIds`; usually nothing) is put back in
+  that click handler, after Excalidraw has handled the pointerup, with
   `captureUpdate: NEVER` (no undo step). The hit box is the logo grown by
   6 CSS px on every side (`LOGO_HIT_PAD_PX`, converted to scene units by
   the zoom, so the target is as forgiving at any zoom; a padding in scene
@@ -714,7 +715,11 @@ their rotated bounds), and a fixed card being dragged is never placed.
   to the card's rect (it never reaches past the card when zoomed out). The
   card's own parts (rect, title, character) never cover the padding; another
   card or anything solid on top does. A double-click on the logo is
-  also two clicks: jumps to the same session within 600 ms run once. Hover:
+  also two clicks, and jumps once: only a click with `detail` 1 jumps, and the
+  dblclick that ends a gesture whose first click jumped does not. The browser
+  counts the clicks of a gesture (the OS double-click time), never a timer in
+  the app: a time window let a slow double-click, or one handled late on a busy
+  machine, jump twice, and two resumes start two agents on one conversation. Hover:
   on pointermove with no button down, a class on the wrapper
   (`excaliagent-logo-hover`) gives the interactive canvas `cursor: pointer
   !important`, which beats the inline cursor Excalidraw writes on every move.
