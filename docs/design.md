@@ -15,7 +15,10 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 ```
 
 - `npx excaliagent` starts one Node process on `127.0.0.1:7357` (a random port
-  if that is busy) and opens the browser with the access token.
+  if that is busy) and opens the browser with the access token. One server per
+  state dir: it records `{port, pid}` in `<stateDir>/server.json`; a second
+  start finds it (pid alive, answers to the token), opens that board and exits,
+  so two servers never overwrite each other's `scene.json`.
 - The **server** reads sessions, links them to herdr panes, streams
   `Session[]` over SSE, stores the scene, and performs the only side effects
   (focus a pane, resume into a new pane, raise the terminal window).

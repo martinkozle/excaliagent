@@ -37,7 +37,7 @@ npx excaliagent
 It starts a server on `127.0.0.1:7357` (a random free port if that one is
 busy; choose with `--port`), prints the URL with its access token, and opens it
 in your browser. After that first visit, `http://127.0.0.1:7357/` works as a
-bookmark.
+bookmark. Running it again while a board is up just opens that board.
 
 - **Live sessions** appear in the *inbox* by themselves. A new board comes with
   lanes next to it (To Do, In Progress, Review, Blocked, Parked, Done, and two

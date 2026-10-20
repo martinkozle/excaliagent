@@ -10,6 +10,7 @@ import { createHerdrLink, createNoPaneLink } from "./panes/herdr.ts";
 import { createSceneStore, defaultStateDir } from "./scene-store.ts";
 import { createClaudeSource } from "./sources/claude.ts";
 import { loadOrCreateToken } from "./token.ts";
+import { clearRunning, findRunning, recordRunning } from "./instance.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // src/server or dist/server → package root
@@ -28,14 +29,24 @@ function openBrowser(url: string) {
 }
 
 async function main(args: CliArgs) {
+  const stateDir = args.stateDir ?? defaultStateDir();
+  const token = await loadOrCreateToken(stateDir);
+  // One board per state dir: a second server would overwrite the first one's saves.
+  const running = await findRunning(stateDir, token);
+  if (running !== undefined) {
+    const url = `http://127.0.0.1:${running}/?token=${token}`;
+    console.log(`excaliagent is already running for ${stateDir}`);
+    console.log(`open: ${url}`);
+    if (args.open) openBrowser(url);
+    return;
+  }
+
   const source = createClaudeSource({ claudeDir: args.claudeDir });
   const desktop = args.herdr && args.raise ? createDesktop({ env: process.env }) : undefined;
   const panes = args.herdr ? createHerdrLink({ desktop }) : createNoPaneLink();
   const hub = createHub({ source, panes });
   await hub.start();
-  const stateDir = args.stateDir ?? defaultStateDir();
   const scenes = createSceneStore(stateDir);
-  const token = await loadOrCreateToken(stateDir);
 
   let middleware: Middleware | undefined;
   let closeVite = async () => {};
@@ -75,6 +86,7 @@ async function main(args: CliArgs) {
   console.log(`herdr: ${panes.available() ? "connected" : args.herdr ? "not running (will retry)" : "disabled"}`);
   if (args.herdr) console.log(`raise window on focus: ${!desktop ? "off (--no-raise)" : desktop.kind === "none" ? "unsupported here" : desktop.kind}`);
   console.log(`open: ${url}`);
+  await recordRunning(stateDir, server.port);
   if (args.open) openBrowser(url);
 
   let stopping = false;
@@ -85,6 +97,7 @@ async function main(args: CliArgs) {
     panes.close();
     await closeVite();
     await server.close();
+    await clearRunning(stateDir).catch(() => {});
     process.exit(0);
   };
   process.on("SIGINT", stop);

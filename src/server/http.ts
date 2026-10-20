@@ -26,7 +26,7 @@ export interface AppServer {
 }
 
 /** Cookies ignore the port, so the name carries it: two boards never clobber each other. */
-const cookieName = (port: number) => `excaliagent_token_${port}`;
+export const cookieName = (port: number) => `excaliagent_token_${port}`;
 /** The token is stable per state dir (token.ts), so the cookie may outlive a restart. */
 const COOKIE_MAX_AGE = 365 * 24 * 3600;
 const MAX_BODY = 50 * 1024 * 1024;
