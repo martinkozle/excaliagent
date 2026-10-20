@@ -347,6 +347,18 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
   await expect.poll(() => lanes().length).toBe(8);
 });
 
+test("Reset the canvas starts a fresh board at once: inbox, lanes, live cards", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => lanes().length).toBe(8);
+  await page.getByRole("button", { name: "+ Lane" }).click();
+  await expect.poll(() => lanes().length).toBe(9);
+  await page.getByTestId("main-menu-trigger").click();
+  await page.getByText("Reset the canvas").click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect.poll(() => lanes().length, { timeout: 5000 }).toBe(8);
+  await expect.poll(() => board.savedCards().length, { timeout: 5000 }).toBe(5);
+});
+
 test.describe("an existing board with an inbox and no lanes", () => {
   const inbox = {
     id: "old-inbox", type: "rectangle", x: 100, y: 50, width: 980, height: 824, angle: 0,

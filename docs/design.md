@@ -329,6 +329,9 @@ the same array.
   "Add starter lanes" at the top. It appends the lanes beside the current
   inbox's bounds (`appendLanes`; toast if there is no inbox) as a normal
   undoable edit (`CaptureUpdateAction.IMMEDIATELY`), unlike reconcile's patches.
+- **Reset the canvas** (Excalidraw's own main menu item): an empty scene
+  triggers a sync at once, so reconcile lays out the starter board with the
+  live sessions instead of waiting for the next 30 s tick.
 - **+ Lane** (top right, beside "Sessions"): `addLane` appends one lane right
   of the rightmost lane or inbox, top-aligned with it and as tall, titled "New
   lane"; the same kind of undoable edit, then scrolled into view.

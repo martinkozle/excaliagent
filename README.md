@@ -34,7 +34,8 @@ PR #12                            ← last PR link
 npx excaliagent
 ```
 
-It starts a server on `127.0.0.1` and opens the board in your browser.
+It starts a server on `127.0.0.1` (a free port each run; pin one with
+`--port`), prints the URL with its access token, and opens it in your browser.
 
 - **Live sessions** appear in the *inbox* by themselves. A new board comes with
   lanes next to it (To Do, In Progress, Review, Blocked, Parked, Done, and two
@@ -44,7 +45,7 @@ It starts a server on `127.0.0.1` and opens the board in your browser.
 - **Dormant sessions** are added from the **Sessions** panel (top right).
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
-  Sway). A dormant session is resumed with `claude --resume` in a new herdr
+  Sway, macOS). A dormant session is resumed with `claude --resume` in a new herdr
   tab, in the workspace for that repo. Without herdr, the resume command is
   copied instead.
 - **Right-click a card** for an excaliagent section on top of the Excalidraw
@@ -53,7 +54,11 @@ It starts a server on `127.0.0.1` and opens the board in your browser.
 - A **PR link** (GitHub, Bitbucket, GitLab) shows on the card; the card's link
   icon opens it.
 - The board is saved to `$XDG_STATE_HOME/excaliagent/scene.json`
-  (default `~/.local/state/excaliagent/`).
+  (default `~/.local/state/excaliagent/`), pasted images under `files/` next
+  to it.
+- **Start over**: main menu → *Reset the canvas* (undoable) lays out a fresh
+  board with the live sessions. Or try a clean board without touching yours:
+  `npx excaliagent --state-dir /tmp/excaliagent-fresh`.
 
 Options: `--port`, `--no-open`, `--state-dir`, `--claude-dir`, `--no-herdr`, `--no-raise`.
 See `npx excaliagent --help`.

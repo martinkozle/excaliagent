@@ -206,9 +206,11 @@ export function App() {
   const onChange = useCallback(
     (elements: Elements, _appState: AppState, files: BinaryFiles) => {
       uploadFiles(elements, files);
+      // "Reset the canvas" (main menu): lay out a fresh board right away, not on the next tick.
+      if (!elements.some((e) => !e.isDeleted)) sync();
       if (saveHash(elements.filter((e) => !e.isDeleted)) !== lastSaved.current) save();
     },
-    [save, uploadFiles],
+    [save, sync, uploadFiles],
   );
 
   const sessionFor = useCallback(
