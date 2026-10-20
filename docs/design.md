@@ -693,6 +693,21 @@ their rotated bounds), and a fixed card being dragged is never placed.
   editing): live → `POST /api/focus`; dormant → `POST /api/resume`; no herdr →
   copy `cd '<cwd>' && <resumeCommand>` and toast. The Stop confirm names the
   harness (`HARNESS_NAMES` in `logos.ts`); picker rows show its logo.
+- **Click the harness logo** (#15): the same jump as a double-click, through
+  the same function (`openSession`). Excalidraw owns the canvas and its
+  pointer events, and has no click API for elements, so App.tsx listens
+  alongside it without stopping anything: on pointerdown (plain left button,
+  selection tool, on the canvas) `logoAt` (`board.ts`) hit-tests the scene
+  point against the logo images of non-deleted cards, topmost first, turned
+  by the element's angle; a filled shape, text or image on top hides the logo,
+  unfilled outlines and frames do not (as Excalidraw's own hit test). The
+  pointerup counts as a click only on the same logo with at most 4 px of
+  movement, so a drag that starts on the logo still just moves the card
+  (Excalidraw selects and drags it as before). A double-click on the logo is
+  also two clicks: jumps to the same session within 600 ms run once. Hover:
+  on pointermove with no button down, a class on the wrapper
+  (`excaliagent-logo-hover`) gives the interactive canvas `cursor: pointer
+  !important`, which beats the inline cursor Excalidraw writes on every move.
 - **Right-click a card** (or a lane, below): Excalidraw 0.18 hardcodes its context menu (no API),
   and injecting into its React-managed DOM breaks on re-render. So
   `src/web/CardMenu.tsx` renders its own panel, portalled into the `.excalidraw`

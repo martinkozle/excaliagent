@@ -21,6 +21,7 @@ import type { Session } from "../shared/types.ts";
 import { api } from "./api.ts";
 import {
   cardAt,
+  logoAt,
   cardSessionIds,
   filesToUpload,
   idsToLookup,
@@ -78,6 +79,10 @@ const CHARACTERS = "excaliagent-characters";
 const PLACEHOLDER = emojiFileId("❔");
 const SAVE_DEBOUNCE_MS = 500;
 const TICK_MS = 30_000;
+/** A logo click: press and release at most this far apart (CSS px). */
+const CLICK_SLOP_PX = 4;
+/** Logo clicks and double-clicks within this long open a session once. */
+const JUMP_DEBOUNCE_MS = 600;
 const measure = canvasMeasure();
 
 // Fonts are split into unicode-range faces; load the ones card text actually uses.
@@ -454,20 +459,66 @@ export function App() {
       const lane = laneTargetAt(elements, x, y);
       return lane ? { kind: "lane", laneId: lane.id } : undefined;
     };
+    // One jump per gesture: a double-click on the logo is also two logo clicks.
+    let lastJump = { sessionId: "", at: -Infinity };
+    const jump = (sessionId: string) => {
+      const now = performance.now();
+      if (lastJump.sessionId === sessionId && now - lastJump.at < JUMP_DEBOUNCE_MS) return;
+      lastJump = { sessionId, at: now };
+      void openSession(excalidraw, sessionId, sessionFor(sessionId));
+    };
     const onDblClick = (event: MouseEvent) => {
       const target = targetUnder(event);
       if (target?.kind !== "card") return;
       event.stopPropagation();
       event.preventDefault();
-      void openSession(excalidraw, target.sessionId, sessionFor(target.sessionId));
+      jump(target.sessionId);
     };
     // Do not preventDefault: Excalidraw still opens its own menu; ours glues onto it.
     const onContextMenu = (event: MouseEvent) => setMenuFor(targetUnder(event) ?? null);
+
+    // A click on a card's harness logo jumps like a double-click. Excalidraw
+    // still gets every pointer event (it selects the card; a press that moves
+    // drags it as usual): only a press and release on the same logo without
+    // moving counts as a click. While the pointer rests on a logo, a class on
+    // the wrapper turns the canvas cursor into a pointer (see index.html).
+    const logoUnder = (clientX: number, clientY: number): string | undefined => {
+      const appState = excalidraw.getAppState() as AppState;
+      if (appState.activeTool.type !== "selection" || appState.editingTextElement) return undefined;
+      const { x, y } = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+      return logoAt(excalidraw.getSceneElements(), x, y);
+    };
+    let press: { sessionId: string; x: number; y: number } | null = null;
+    const onPointerMove = (event: PointerEvent) => {
+      if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_SLOP_PX) press = null;
+      const hover = event.buttons === 0 && event.target instanceof HTMLCanvasElement && !!logoUnder(event.clientX, event.clientY);
+      el.classList.toggle("excaliagent-logo-hover", hover);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      press = null;
+      const plain = event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (!plain || !(event.target instanceof HTMLCanvasElement)) return;
+      const sessionId = logoUnder(event.clientX, event.clientY);
+      if (sessionId) press = { sessionId, x: event.clientX, y: event.clientY };
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      const p = press;
+      press = null;
+      if (!p || event.button !== 0 || Math.hypot(event.clientX - p.x, event.clientY - p.y) > CLICK_SLOP_PX) return;
+      if (logoUnder(event.clientX, event.clientY) === p.sessionId) jump(p.sessionId);
+    };
     el.addEventListener("dblclick", onDblClick, true);
     el.addEventListener("contextmenu", onContextMenu, true);
+    el.addEventListener("pointermove", onPointerMove, true);
+    el.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("pointerup", onPointerUp, true);
     return () => {
       el.removeEventListener("dblclick", onDblClick, true);
       el.removeEventListener("contextmenu", onContextMenu, true);
+      el.removeEventListener("pointermove", onPointerMove, true);
+      el.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      el.classList.remove("excaliagent-logo-hover");
     };
   }, [excalidraw, sessionFor]);
 

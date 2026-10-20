@@ -43,7 +43,44 @@ export function cardAt(elements: readonly ExcalidrawElement[], x: number, y: num
   return undefined;
 }
 
-const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+/** Whether the scene point lies in the element's box, turned by its angle around its centre. */
+function inBox(e: ExcalidrawElement, x: number, y: number): boolean {
+  const cx = e.x + e.width / 2;
+  const cy = e.y + e.height / 2;
+  const cos = Math.cos(-e.angle);
+  const sin = Math.sin(-e.angle);
+  const dx = (x - cx) * cos - (y - cy) * sin;
+  const dy = (x - cx) * sin + (y - cy) * cos;
+  return Math.abs(dx) <= e.width / 2 && Math.abs(dy) <= e.height / 2;
+}
+
+/** Elements a click inside goes through in Excalidraw: frames, unfilled shapes and lines. */
+function seeThrough(e: ExcalidrawElement): boolean {
+  if (e.type === "frame" || e.type === "magicframe") return true;
+  if (e.type === "text" || e.type === "image") return false;
+  return e.backgroundColor === "transparent";
+}
+
+/**
+ * Session id of the card whose harness logo is under the scene point, unless
+ * something solid (a filled shape, a text, an image) lies on top of it there.
+ * Only logos of non-deleted cards count.
+ */
+export function logoAt(elements: readonly ExcalidrawElement[], x: number, y: number): string | undefined {
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const e = elements[i]!;
+    if (e.isDeleted || !inBox(e, x, y)) continue;
+    const m = e.customData?.excaliagent;
+    if (e.type === "image" && m?.kind === "card-logo" && typeof m.sessionId === "string") {
+      const card = elements.find((c) => c.id === m.cardId);
+      return card && !card.isDeleted && cardMeta(card) ? m.sessionId : undefined;
+    }
+    if (!seeThrough(e)) return undefined;
+  }
+  return undefined;
+}
+
+const shellQuote =(s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
 /**
  * The server-built resume command (`claude --resume <id>`, `codex resume <id>`)

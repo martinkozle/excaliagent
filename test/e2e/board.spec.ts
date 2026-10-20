@@ -297,6 +297,77 @@ test("double-clicking a dormant card offers the resume command", async ({ page, 
   await expect(page.locator("textarea.excalidraw-wysiwyg")).toHaveCount(0);
 });
 
+/** Viewport point at the center of a card's harness logo, the card scrolled into view. */
+async function logoPoint(page: Page, sessionId: string) {
+  await cardPoint(page, sessionId);
+  return page.evaluate((sessionId) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const logo = excalidraw
+      .getSceneElements()
+      .find((e: any) => e.customData?.excaliagent?.kind === "card-logo" && e.customData.excaliagent.sessionId === sessionId);
+    const s = excalidraw.getAppState();
+    const sx = logo.x + logo.width / 2;
+    const sy = logo.y + logo.height / 2;
+    return { x: (sx + s.scrollX) * s.zoom.value + s.offsetLeft, y: (sy + s.scrollY) * s.zoom.value + s.offsetTop };
+  }, sessionId);
+}
+
+const canvasCursor = (page: Page) =>
+  page.locator("canvas.interactive").evaluate((c) => getComputedStyle(c).cursor);
+
+test.describe("the harness logo is a button", () => {
+  async function addDormant(page: Page) {
+    await open(page);
+    await expect.poll(() => board.savedCards().length).toBe(5);
+    await page.getByTitle("Add a dormant session to the board").click();
+    await page.locator(".excaliagent-picker-row", { hasText: "Old migration spike" }).getByRole("button", { name: "Add" }).click();
+    await expect.poll(() => card(ID.dormantA)).toBeTruthy();
+    await page.keyboard.press("Escape");
+  }
+
+  test("hovering it shows a pointer cursor; elsewhere on the card it does not", async ({ page }) => {
+    await open(page);
+    await expect.poll(() => board.savedCards().length).toBe(5);
+    const logo = await logoPoint(page, ID.busy);
+    await page.mouse.move(logo.x, logo.y);
+    await expect.poll(() => canvasCursor(page)).toBe("pointer");
+    const body = await cardPoint(page, ID.busy);
+    await page.mouse.move(body.x, body.y);
+    await expect.poll(() => canvasCursor(page)).not.toBe("pointer");
+  });
+
+  test("a single click on a dormant card's logo offers the resume command, like a double-click", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await addDormant(page);
+    const logo = await logoPoint(page, ID.dormantA);
+    await page.mouse.click(logo.x, logo.y);
+    await expect(page.getByText(/claude --resume 22222222-0000-4000-8000-000000000001/)).toBeVisible();
+    await expect(page.locator("textarea.excalidraw-wysiwyg")).toHaveCount(0);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("claude --resume 22222222-0000-4000-8000-000000000001");
+  });
+
+  test("a single click elsewhere on the card does nothing; dragging from the logo still moves the card", async ({ page }) => {
+    await addDormant(page);
+    const body = await cardPoint(page, ID.dormantA);
+    await page.mouse.click(body.x - 60, body.y + 20);
+    await page.waitForTimeout(300);
+    await expect(page.getByText(/claude --resume/)).toHaveCount(0);
+
+    const before = card(ID.dormantA)!;
+    const zoom = await page.evaluate(() => (window as any).__excaliagent.excalidraw.getAppState().zoom.value);
+    const logo = await logoPoint(page, ID.dormantA);
+    await page.mouse.move(logo.x, logo.y);
+    await page.mouse.down();
+    await page.mouse.move(logo.x + 60, logo.y + 40, { steps: 6 });
+    await page.mouse.move(logo.x + 120, logo.y + 80, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(() => card(ID.dormantA)!.x).toBeCloseTo(before.x + 120 / zoom, 0);
+    expect(card(ID.dormantA)!.y).toBeCloseTo(before.y + 80 / zoom, 0);
+    await page.waitForTimeout(300);
+    await expect(page.getByText(/claude --resume/)).toHaveCount(0);
+  });
+});
+
 test("a card links to its last PR", async ({ page }) => {
   await open(page);
   await expect.poll(() => board.savedCards().length).toBe(5);
