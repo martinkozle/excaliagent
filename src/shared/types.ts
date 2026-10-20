@@ -12,7 +12,7 @@ export type SessionStatus =
   | "dormant";
 
 /** The harness that produced a session (its adapter on the server). */
-export type SessionSource = "claude" | "codex";
+export type SessionSource = "claude" | "codex" | "opencode";
 
 export interface Pane {
   paneId: string;

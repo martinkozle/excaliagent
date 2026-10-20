@@ -1,5 +1,6 @@
 // Several harness adapters behind one Source. Session ids are not qualified by
-// harness: Claude uses random UUIDs (v4) and Codex time-ordered UUIDs (v7), so
+// harness: Claude uses random UUIDs (v4), Codex time-ordered UUIDs (v7) and
+// OpenCode `ses_` ids, so
 // they cannot collide, and boards saved before multi-harness support keep
 // their cards. Each source rejects ids that are not its own format, so `get`
 // and `end` simply ask them in order.

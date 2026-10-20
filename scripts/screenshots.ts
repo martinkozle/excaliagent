@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { chromium, type Page } from "@playwright/test";
 import { seedDemo } from "../test/mock-claude.ts";
 import { seedCodexDemo } from "../test/mock-codex.ts";
+import { seedOpenCodeDemo } from "../test/mock-opencode.ts";
 import { startBoard } from "../test/e2e/board.ts";
 
 const out = join(import.meta.dirname, "..", "docs", "images");
@@ -50,8 +51,12 @@ async function moveToLane(page: Page, sessionId: string, lane: string, slot = 0)
 }
 
 let codexIds = { busy: "", idle: "", parked: "" };
-const board = await startBoard(seedDemo, { codexSeed: (codex) => void (codexIds = seedCodexDemo(codex)) });
-const cards = 7;
+let opencodeIds = { live: "", parked: "" };
+const board = await startBoard(seedDemo, {
+  codexSeed: (codex) => void (codexIds = seedCodexDemo(codex)),
+  opencodeSeed: (opencode) => void (opencodeIds = seedOpenCodeDemo(opencode)),
+});
+const cards = 8;
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined });
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 });
@@ -67,6 +72,7 @@ try {
   await page.waitForTimeout(500);
   await moveToLane(page, ID.oauth, "In Progress");
   await moveToLane(page, codexIds.busy, "In Progress", 1);
+  await moveToLane(page, opencodeIds.live, "In Progress", 2);
   await moveToLane(page, ID.flaky, "Review");
   await moveToLane(page, ID.design, "Blocked");
   await moveToLane(page, ID.migration, "Parked");

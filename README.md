@@ -1,7 +1,7 @@
 # excaliagent
 
-A spatial scratchboard for your coding-agent sessions (Claude Code and OpenAI
-Codex), on an Excalidraw canvas.
+A spatial scratchboard for your coding-agent sessions (Claude Code, OpenAI
+Codex and OpenCode), on an Excalidraw canvas.
 
 ![The board: session cards triaged into lanes](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/board.png)
 
@@ -38,6 +38,7 @@ PR #12                           ← last PR link
 |---|---|---|---|---|
 | Claude Code | registry in `~/.claude/sessions`: busy, idle, needs input, ... | transcripts | `claude --resume <id>` | yes |
 | Codex (0.163) | Linux only: running threads; busy or idle (approval prompts show as busy) | rollouts in `~/.codex/sessions` | `codex resume <id>` | yes |
+| OpenCode (1.19) | Linux only, best effort (see below); busy or idle | `~/.local/share/opencode/opencode.db` | `opencode -s <id>` | yes |
 
 Codex cards carry no prompt-cache line or PR link (Codex records neither), and
 on macOS Codex sessions are only offered as dormant ones. Stop is offered only
@@ -47,6 +48,15 @@ folder. Rollouts older than a week may be compressed; reading those needs
 Node 22.15+. Codex is looked up in
 `$CODEX_HOME`, else `~/.codex` (`--codex-dir` to change, `--no-codex` to
 turn it off). Details: [design](docs/design.md#codex-data-verified-on-01630).
+
+OpenCode keeps no record of which session a running TUI shows, so the board
+infers it: a TUI started with `opencode -s <id>` shows that session, any other
+TUI the newest session of its directory that changed since it started. After
+`/new` or switching sessions inside a TUI the wrong card can be live; see
+[design](docs/design.md#opencode-data-verified-on-1193). Stop is offered only
+for a TUI started with `opencode -s <id>`. OpenCode support needs Node 22.13+
+(for `node:sqlite`; the rest of the board runs on Node 22); `--opencode-dir`
+points at another data dir, `--no-opencode` turns it off.
 
 ## Run
 
@@ -113,7 +123,7 @@ bookmark. Running it again while a board is up just opens that board.
   `npx excaliagent --state-dir /tmp/excaliagent-fresh`.
 
 Options: `--port`, `--no-open`, `--state-dir`, `--claude-dir`, `--codex-dir`,
-`--no-codex`, `--no-herdr`, `--no-raise`.
+`--no-codex`, `--opencode-dir`, `--no-opencode`, `--no-herdr`, `--no-raise`.
 See `npx excaliagent --help`.
 
 ## Privacy and security
@@ -125,7 +135,10 @@ See `npx excaliagent --help`.
   prompt, cut short, as the title, like `codex resume` shows it),
   `session_index.jsonl` (names), the lock files in `thread-writer-locks/`, and
   `/proc` (`/proc/locks`, and the command line and working directory of
-  `codex` processes) to tell which threads are running. Installs no hooks, writes nothing
+  `codex` processes) to tell which threads are running. For OpenCode it reads
+  `opencode.db` read-only (session titles, directories, times, and whether the
+  newest message is finished; never message content) and the command line,
+  working directory and start time of `opencode` processes. Installs no hooks, writes nothing
   outside its state directory.
 - Listens on loopback only. A random token (created once, kept in the state
   directory, readable only by you) is put into the URL it opens and exchanged
@@ -133,7 +146,7 @@ See `npx excaliagent --help`.
   machine stay out. Requests with a
   foreign `Host` (DNS rebinding) or cross-origin writes are refused.
 - Its only actions: focus a herdr pane, raise the terminal window, start
-  `claude --resume <id>` or `codex resume <id>` in a new herdr pane, and stop a session when you ask
+  `claude --resume <id>`, `codex resume <id>` or `opencode -s <id>` in a new herdr pane, and stop a session when you ask
   (right-click → Stop session, confirmed; it exits as if its terminal closed).
   It never types into a running session.
 - Images you paste onto the board, and the images of your character packs,
@@ -162,14 +175,14 @@ The repo ships a Nix flake with Node 24 and Chromium for the browser tests:
 direnv allow        # or: nix develop
 npm install
 npm test            # unit tests (vitest)
-npm run test:e2e    # browser tests (playwright) against mock Claude and Codex homes
+npm run test:e2e    # browser tests (playwright) against mock Claude, Codex and OpenCode homes
 npm run demo        # the board with a seeded, synthetic set of sessions
-npm run dev         # server + Vite hot reload against your real ~/.claude and ~/.codex
+npm run dev         # server + Vite hot reload against your real ~/.claude, ~/.codex and OpenCode data
 ```
 
-Tests never read your real `~/.claude` or `~/.codex` or talk to your running
-herdr: `test/mock-claude.ts` and `test/mock-codex.ts` seed throwaway homes with
-dummy processes, and the
+Tests never read your real `~/.claude`, `~/.codex` or OpenCode data or talk to
+your running herdr: `test/mock-claude.ts`, `test/mock-codex.ts` and
+`test/mock-opencode.ts` seed throwaway homes with dummy processes, and the
 herdr tests start an isolated `herdr server` with its own temp home and socket.
 A privacy test fails if any fixture contains this machine's home path or user
 name.
@@ -177,4 +190,4 @@ name.
 Docs: [product](docs/product.md), [design](docs/design.md), [roadmap](docs/roadmap.md). Agents start at [AGENTS.md](AGENTS.md).
 
 MIT licensed. Built-in characters are Unicode emoji, drawn by your system's
-emoji font. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to. simple-icons has no OpenAI mark, so Codex cards show a neutral `>_` glyph drawn for this project.
+emoji font. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to. simple-icons has no OpenAI mark, so Codex cards show a neutral `>_` glyph drawn for this project; the OpenCode mark is from simple-icons too.

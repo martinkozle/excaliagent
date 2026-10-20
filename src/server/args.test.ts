@@ -5,7 +5,7 @@ describe("parseCliArgs", () => {
   it("has sane defaults", () => {
     expect(parseCliArgs([])).toEqual({
       port: undefined, open: true, dev: false, herdr: true, raise: true, stateDir: undefined, claudeDir: undefined,
-      codex: true, codexDir: undefined, help: false, version: false,
+      codex: true, codexDir: undefined, opencode: true, opencodeDir: undefined, help: false, version: false,
     });
   });
   it("parses every flag", () => {
@@ -16,6 +16,10 @@ describe("parseCliArgs", () => {
   it("--codex-dir points at a Codex home; --no-codex turns Codex off", () => {
     expect(parseCliArgs(["--codex-dir", "/x"])).toMatchObject({ codex: true, codexDir: "/x" });
     expect(parseCliArgs(["--no-codex"])).toMatchObject({ codex: false });
+  });
+  it("--opencode-dir points at an OpenCode data dir; --no-opencode turns OpenCode off", () => {
+    expect(parseCliArgs(["--opencode-dir", "/o"])).toMatchObject({ opencode: true, opencodeDir: "/o" });
+    expect(parseCliArgs(["--no-opencode"])).toMatchObject({ opencode: false });
   });
   it("--no-raise keeps herdr focus but does not raise the terminal window", () => {
     expect(parseCliArgs(["--no-raise"])).toMatchObject({ herdr: true, raise: false });

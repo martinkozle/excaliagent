@@ -16,8 +16,7 @@ context I could have continued cheaply.
 ## Who it is for
 
 The author first. Published as an open-source npm package for anyone running
-several Claude Code or Codex sessions, with or without herdr. OpenCode is a
-later adapter.
+several Claude Code, Codex or OpenCode sessions, with or without herdr.
 
 ## Goals
 
@@ -54,7 +53,7 @@ later adapter.
   with cold cache and dormant cards are muted.
 - The card shows a handwritten title and smaller details: repo · branch,
   status · waiting-for · age, cache warmth, `herdr: workspace › tab` (or "not in
-  herdr"), PR link, and the harness logo in the corner (Claude, Codex), so
+  herdr"), PR link, and the harness logo in the corner (Claude, Codex, OpenCode), so
   cards of different agents tell apart.
 - Colour and text update within 2 s of a change.
 - A card is as tall as its title needs (one or two lines) and grows or shrinks
@@ -72,6 +71,16 @@ later adapter.
   ends the Codex terminal app, offered only when the board knows that process
   for sure (`codex resume <id>`, `codex exec`).
 - `--no-codex` turns them off, `--codex-dir` points elsewhere.
+
+### S2c. OpenCode sessions (done, best effort)
+
+- Running OpenCode sessions (Linux) get cards with the OpenCode logo, busy or
+  idle. Which session a TUI shows is inferred (OpenCode does not record it):
+  exact for `opencode -s <id>` until the user switches sessions inside it.
+- Parked OpenCode sessions are in the picker; resume is `opencode -s <id>`;
+  Stop ends the OpenCode terminal app, offered only for a TUI started with
+  `opencode -s <id>` (never for a guessed match).
+- `--no-opencode` turns them off, `--opencode-dir` points elsewhere.
 
 ### S3. Jump to the session (done)
 

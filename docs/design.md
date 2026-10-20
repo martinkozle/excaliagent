@@ -1,14 +1,14 @@
 # excaliagent: design
 
 How the board works and why. `product.md` is the goal state; this file is the
-reference for changing the code. Facts about Claude Code, Codex and herdr are
+reference for changing the code. Facts about Claude Code, Codex, OpenCode and herdr are
 undocumented upstream: each says which version it was verified on. Re-verify
 before relying on one after an upgrade, and update this file.
 
 ## Shape
 
 ```
-Claude Code, Codex ► Source (src/server/sources) ──┐
+Claude, Codex, OC ► Source (src/server/sources) ──┐
                                                     ├─► Hub ──SSE──► browser: reconcile ──► Excalidraw scene
 herdr socket ───────► PaneLink (src/server/panes) ──┘     ▲                                     │
                                                           └──── PUT /api/scene (scene.json) ◄───┘
@@ -31,8 +31,8 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 | Topic | Decision | Why |
 |---|---|---|
 | Card unit | One card per **agent session** (never per pane or workspace) | Two agents in one worktree are two things to triage |
-| Source of truth | **Each harness's own files**: `~/.claude/sessions/<pid>.json` + transcripts; Codex rollouts + held thread locks. herdr is optional | The board is mostly for dormant sessions, which have no pane |
-| Identity | The harness's session id (Claude `sessionId`, Codex thread id), not qualified by harness; the card survives exit and resume | Claude ids are random UUIDs (v4), Codex ids time-ordered UUIDs (v7): they cannot collide, and existing boards keep their cards. The card rect records `source` |
+| Source of truth | **Each harness's own files**: `~/.claude/sessions/<pid>.json` + transcripts; Codex rollouts + held thread locks; OpenCode's SQLite database + TUI processes. herdr is optional | The board is mostly for dormant sessions, which have no pane |
+| Identity | The harness's session id (Claude `sessionId`, Codex thread id, OpenCode `ses_…`), not qualified by harness; the card survives exit and resume | Claude ids are random UUIDs (v4), Codex ids time-ordered UUIDs (v7), OpenCode ids `ses_` + 26 chars: they cannot collide, and existing boards keep their cards. The card rect records `source` |
 | Several harnesses | One `Source` per harness behind `combineSources` (`src/server/sources/multi.ts`); each rejects ids not in its format; a failing one degrades to no sessions | Harness code stays in its adapter |
 | Resume command | Built by the adapter from the validated id and sent as `Session.resumeCommand`; the web only prefixes `cd` | `src/web` knows harnesses by display name and logo only |
 | Spawning | Live sessions auto-spawn into the inbox; dormant ones come from the picker | 40 transcripts in one project would flood the board |
@@ -52,7 +52,7 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 
 ```ts
 interface Session {
-  id: string; source: "claude" | "codex"; cwd: string;
+  id: string; source: "claude" | "codex" | "opencode"; cwd: string;
   repo: string; repoRoot?: string; branch?: string;
   title?: string; name?: string;
   status: "busy"|"idle"|"waiting"|"needs_user"|"needs_trust"|"blocked"|"exited"|"dormant";
@@ -347,6 +347,91 @@ shows too).
   A `codex exec` holder is SIGTERMed itself. The daemon is never signalled
   (it serves every TUI).
 
+## OpenCode data (verified on 1.19.3)
+
+How these were learned: the source at tag `v1.19.3` (github.com/anomalyco/opencode,
+`packages/`), and throwaway runs of the installed `opencode 1.19.3` (Linux,
+nix build) with temporary `HOME`/`XDG_*`, a custom OpenAI-compatible provider
+pointed at a local mock, `opencode run` and the TUI in an isolated tmux
+server. "(V)" = seen in those runs; "(S)" = source only. Never checked against
+a real OpenCode data dir.
+
+### Database: `$XDG_DATA_HOME/opencode/opencode.db`
+
+- SQLite in WAL mode; default `~/.local/share/opencode/opencode.db` (V).
+  `OPENCODE_DB` overrides it (absolute, or relative to the data dir); non-release
+  channels would use `opencode-<channel>.db` (S:
+  `core/src/database/database.ts`). Read read-only with `node:sqlite` (Node
+  22.13+, no runtime dependency); a read-only handle works while a TUI writes
+  (V). Without `node:sqlite` or the file, OpenCode shows nothing (logged once).
+  WAL keeps `opencode.db-wal` and `opencode.db-shm` beside it; a reader needs
+  both, so the data dir must be readable (a read-only handle may still touch
+  `-shm`). A 250 ms `busy_timeout` rides out OpenCode's writes. Rows whose id
+  is not a valid `ses_` id are dropped before any session or resume command
+  is built.
+- `session` (V, columns used): `id`, `parent_id` (sub-agent sessions; hidden),
+  `directory` (absolute cwd of the process that created it), `title`,
+  `time_updated`, `time_created` (both INTEGER epoch ms, V on 1.19.3), `time_archived` (archived; hidden).
+  `lastActivityAt` = `time_updated`, else `time_created`, else 0 (no age shown). Ids are `ses_`
+  + 12 hex (a *descending* time code) + 14 base62 (S: `opencode/src/id/id.ts`; V).
+- Titles start as `New session - <ISO>` (`Child session - …` for sub-agents)
+  until OpenCode generates one (V); such a default title is not shown (the card
+  falls back to the repo name).
+- `message` (V): `session_id`, `time_created`, `data` JSON with `role` and
+  `time.created` / `time.completed`. A reply being generated has no
+  `time.completed` (V); SIGTERM or abort completes it with a
+  `MessageAbortedError` (V); after SIGKILL it stays unfinished forever, even
+  after a resume (V).
+- Session status (`idle | busy | retry`) and pending permission or question
+  prompts live only in the process's memory and its optional HTTP API (S:
+  `opencode/src/session/status.ts`, `permission/index.ts`). So: busy = the newest
+  message created since the TUI started is a prompt or an unfinished reply;
+  else idle. A permission prompt shows as busy.
+
+### Liveness
+
+- No registry, lock or port file. The TUI is one process (the server runs in a
+  worker thread, in-process RPC; no listener unless `--port`/`--hostname`/`--mdns`
+  is given; V). Lock dirs under `~/.local/state/opencode/locks` are for npm
+  installs, not sessions (V). Its argv: `opencode`, `opencode -s <id>`,
+  `opencode -c`, `opencode <project>` (V/S); the nix build is
+  `exec -a …/bin/opencode …/.opencode-wrapped` (comm `.opencode-wrapp`, V); npm
+  installs run a node shim that spawns the native binary (S). Its cwd is the
+  project dir (V).
+- **Rule** (`src/server/sources/opencode-live.ts`, Linux `/proc`): a TUI started
+  with `-s/--session <id>` (not `--fork`) shows that session; every other TUI
+  shows the most recently updated root, unarchived session whose `directory`
+  equals its cwd, if that session was updated after the TUI started (start
+  time from `/proc/<pid>/stat` + `btime`; TUIs are matched latest start
+  first). A TUI that names a session never falls back to the directory rule,
+  even when that session is unknown or already taken. A shim and its native
+  child count once, as the shim. pid = the TUI's, so herdr links the pane.
+- **Exact or guessed**: only a `-s <id>` match is exact. Only exact matches set
+  `Session.canEnd` (the board offers Stop) and can be stopped (`end` answers
+  "unsupported" otherwise), so a guess never sends a SIGTERM.
+- The proc root is an option (`EXCALIAGENT_PROC_ROOT` for the CLI): tests and
+  the demo read a synthetic tree, never the machine's processes.
+- **Known gaps**: after `/new` or switching sessions inside a TUI started with
+  `-s`, the argv still names the old session (V), so the old card stays live
+  and the new one is not. A TUI resumed on an older session (`-c`, the session
+  list) counts only once something in it changes. Two TUIs in one directory
+  can swap cards. A session resumed from another directory keeps its original
+  `directory` and is matched only through `-s`. Not Linux: no live OpenCode
+  sessions, only the picker. Asking a TUI over HTTP would be exact but needs
+  `--port`, which the TUI does not advertise anywhere.
+- Polled every 2 s (the database changes on every token; nothing better to
+  watch). One look (processes, database, git) is reused for a poll interval by
+  `list`, `listDormant` and `get`; the poll always looks afresh.
+
+### Resume and stop
+
+- Resume: `opencode -s <id>` in the session's `directory` (V; OpenCode prints
+  this on exit and validates the session against the cwd).
+- Stop (exact `-s <id>` matches only): SIGTERM to the TUI pid, after a fresh
+  check that it is still an OpenCode TUI: it
+  closes the running reply, restores the terminal and exits with 0 (V, idle and
+  mid-reply). The npm shim forwards SIGTERM to its child (S).
+
 ## herdr data (verified on 0.9.0, protocol 22)
 
 - Socket: `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock`.
@@ -397,9 +482,10 @@ shows too).
   else `workspace.create` labelled with the repo name. Then
   `pane.send_text "<resumeCommand>\n"` (e.g. `claude --resume <id>`) and raise.
   The id must match `SESSION_ID` (`src/server/hub.ts`: the union of the
-  harnesses' id formats; Claude and Codex: a UUID) and the owning source's own
-  format; the command is built server-side by that source only. The
-  characters store keys by the same check.
+  harnesses' id formats; Claude and Codex: a UUID; OpenCode: `ses_` + 26
+  alphanumerics) and the owning source's own format; the command is built
+  server-side by that source only. The characters store keys by the same
+  check.
 - **Socket**: `HERDR_SOCKET_PATH`, else `$XDG_CONFIG_HOME/herdr/herdr.sock`, else
   `~/.config/herdr/herdr.sock` (checked on herdr 0.9.0 / Linux with isolated
   servers). The herdr binary has no `~/Library` path, so macOS is assumed to be
@@ -471,7 +557,8 @@ A card is five app-owned elements in one app group (group id first in
 - **logo** — an image element, 20 px, in the rect's top-right corner, centred
   on the first title line: the harness mark (`src/web/logos.ts`; Claude's from
   simple-icons, CC0; simple-icons has no OpenAI mark, so Codex gets a neutral
-  `>_` glyph drawn for this project, dark grey, evenodd holes). `{kind:"card-logo", sessionId, cardId}`. Its file
+  `>_` glyph drawn for this project, dark grey, evenodd holes; OpenCode's from
+  simple-icons, CC0, black). `{kind:"card-logo", sessionId, cardId}`. Its file
   (`excaliagent-logo-<source>`, an SVG data URL) is a constant handed to
   Excalidraw on load and never stored, so the mark can change between releases.
   A source without a logo gets none.
@@ -753,7 +840,7 @@ their rotated bounds), and a fixed card being dragged is never placed.
   wins. (2) Else the remembered pick for the active pack, if that character
   still exists, taken in the order the picks were made (the key order of
   `assigned[pack]`). (3) Everyone else: start at FNV-1a(session id; the
-  same for every harness: Claude, Codex) mod pack
+  same for every harness: Claude, Codex, OpenCode) mod pack
   size and probe linearly (wrapping) to the first character no other card
   uses; if all are used, take the start slot (duplicates). New picks are
   remembered at once, so a character never shifts when the cards it collided
@@ -872,20 +959,23 @@ Body limits: `/api/packs/image` 1.5 MB, the other character and pack routes
   local users out of your session list and herdr.
 - Host header check (DNS rebinding), same-origin and JSON-only writes (CSRF).
 - Side effects: focus a pane, raise a window, start `claude --resume <id>` or
-  `codex resume <id>` in a new pane, end a session (`POST /api/end`, after a
+  `codex resume <id>` or `opencode -s <id>` in a new pane, end a session (`POST /api/end`, after a
   confirm in the UI: SIGTERM to the registry pid, only if that pid is still a
   `claude` process, which guards against pid reuse; for Codex to the TUI
   (or `codex exec`) pid of an exact match, only if it is still a `codex`
-  process and not the shared daemon). Ids are validated; commands and pids are derived
+  process and not the shared daemon; for OpenCode to the TUI pid of an exact
+  `-s <id>` match, only if it is still an `opencode` TUI). Ids are validated; commands and pids are derived
   server-side only.
 - Reads only `~/.claude/sessions`, transcript metadata lines, Codex rollouts
   (metadata, turn markers, the first prompt as title), `session_index.jsonl`
   and `thread-writer-locks/`, `.git/HEAD`, and `/proc` (window raise;
-  `/proc/locks` and Codex processes' argv, cwd and fds). Writes only its state
-  dir (scene, images, `characters.json`, `packs/`). Pack names are validated
-  against a strict charset and matched against the folder listing before they
-  touch a path; image file names must be plain listable names (no separators,
-  not hidden) and regular files.
+  `/proc/locks` and Codex processes' argv, cwd and fds; OpenCode processes'
+  argv, cwd and start time), and OpenCode's `opencode.db` read-only (session
+  rows and each live session's newest message role and times; no content).
+  Writes only its state dir (scene, images, `characters.json`, `packs/`). Pack
+  names are validated against a strict charset and matched against the folder
+  listing before they touch a path; image file names must be plain listable
+  names (no separators, not hidden) and regular files.
 
 ## Prior art
 

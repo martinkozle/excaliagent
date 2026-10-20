@@ -3,7 +3,8 @@
 // (CC0); the marks are trademarks of their owners and only identify the harness.
 // simple-icons has no OpenAI or Codex mark (removed at OpenAI's request), so
 // Codex gets a neutral glyph of our own: a terminal prompt ">_" knocked out of a
-// rounded square (drawn for this project, MIT like the rest).
+// rounded square (drawn for this project, MIT like the rest). OpenCode's mark
+// is from simple-icons 16.35.0 too (CC0).
 //
 // Excalidraw keeps image data in BinaryFiles, outside the elements. These are
 // constants with stable ids, handed to Excalidraw at startup, so the saved scene
@@ -26,6 +27,8 @@ const CODEX_PATH =
   "M6.3 7.4 7.7 6l6 6-6 6-1.4-1.4 4.6-4.6z" +
   "M13 16h5v2h-5z";
 
+const OPENCODE_PATH = "M22 24H2V0h20zM17 4.8H7v14.4h10z";
+
 /** A one-path SVG; 256 px intrinsic size so zoomed-in cards stay crisp. */
 function svgDataUrl(path: string, color: string, evenOdd: boolean): DataURL {
   const svg =
@@ -42,12 +45,14 @@ const logo = (source: string, path: string, color: string, evenOdd = false): Log
 export const LOGOS: Record<Session["source"], Logo> = {
   claude: logo("claude", CLAUDE_PATH, "#D97757"),
   codex: logo("codex", CODEX_PATH, "#343a40", true),
+  opencode: logo("opencode", OPENCODE_PATH, "#000000"),
 };
 
 /** How the board names each harness in messages ("Stop …? Codex exits …"). */
 export const HARNESS_NAMES: Record<Session["source"], string> = {
   claude: "Claude Code",
   codex: "Codex",
+  opencode: "OpenCode",
 };
 
 /** The files every board needs for its card logos. */

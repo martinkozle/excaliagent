@@ -28,6 +28,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 const { createCodexSource } = await import("./codex.ts");
+const { createOpenCodeSource } = await import("./opencode.ts");
+const { createMockOpenCode } = await import("../../../test/mock-opencode.ts");
+const { createMockProc } = await import("../../../test/mock-proc.ts");
 
 let root: string | undefined;
 afterEach(async () => {
@@ -72,5 +75,27 @@ describe("no real /proc under test", () => {
     expect(kill).toHaveBeenCalledExactlyOnceWith(20, "SIGTERM");
     expect(touched.some((p) => p.startsWith(proc))).toBe(true);
     expect(realProc()).toEqual([]);
+  });
+
+  it("the OpenCode source reads only the given proc root", async () => {
+    root = await mkdtemp(join(tmpdir(), "excaliagent-noproc-"));
+    const procs = createMockProc(join(root, "proc"));
+    const mock = createMockOpenCode(procs, join(root, "opencode"));
+    const id = `ses_${"0".repeat(12)}abcdefghijklmn`;
+    mock.add({ id, directory: "/home/alice/src/demo-app", title: "Live one" });
+    try {
+      touched.length = 0;
+      const kill = vi.fn();
+      const src = createOpenCodeSource({ dataDir: mock.dir, procRoot: procs.root, log: () => {}, cacheMs: 0, kill });
+      expect((await src.list()).map((s) => [s.id, s.canEnd])).toEqual([[id, true]]);
+      await src.listDormant();
+      await src.get(id);
+      expect(await src.end!(id)).toBe("ended");
+      expect(kill).toHaveBeenCalledOnce();
+      expect(touched.some((p) => p.startsWith(procs.root))).toBe(true);
+      expect(realProc()).toEqual([]);
+    } finally {
+      mock.teardown();
+    }
   });
 });
