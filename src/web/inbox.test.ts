@@ -32,7 +32,7 @@ describe("nextSlot", () => {
 
   it("a partially overlapping card blocks the slot", () => {
     // overlaps both columns of rows 0 and 1
-    expect(nextSlot(inbox, [card(inbox.x + 100, inbox.y + 100)])).toEqual({ x: col(0), y: row(2) });
+    expect(nextSlot(inbox, [card(inbox.x + 100, inbox.y + 100, { height: CARD_H })])).toEqual({ x: col(0), y: row(2) });
   });
 
   it("keeps stacking below the inbox once it is full", () => {

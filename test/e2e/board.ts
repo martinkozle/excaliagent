@@ -26,6 +26,9 @@ export interface SavedCard {
   x: number;
   y: number;
   width: number;
+  height: number;
+  /** customData.excaliagent.appHeight: the height the app last set. */
+  appHeight?: number;
   backgroundColor: string;
   strokeColor: string;
   strokeStyle: string;
@@ -120,6 +123,8 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
           x: r.x,
           y: r.y,
           width: r.width,
+          height: r.height,
+          appHeight: r.customData.excaliagent.appHeight,
           backgroundColor: r.backgroundColor,
           strokeColor: r.strokeColor,
           strokeStyle: r.strokeStyle,

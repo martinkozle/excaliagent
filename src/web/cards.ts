@@ -66,8 +66,13 @@ export const LOGO_SIZE = 20;
 export const TITLE_W = INNER_W - LOGO_SIZE - 8;
 
 export const TITLE_H = TITLE_SIZE * TITLE_LH;
-/** Fits two title lines and five detail lines. */
-export const CARD_H = Math.ceil(PAD + TITLE_MAX_LINES * TITLE_H + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD);
+/** Card height for a title of `titleLines` (clamped to 1–2) lines above five detail lines. */
+export function cardHeight(titleLines: number): number {
+  const lines = Math.min(TITLE_MAX_LINES, Math.max(1, titleLines));
+  return Math.ceil(PAD + lines * TITLE_H + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD);
+}
+/** The tallest card (two title lines): the inbox grid's row height. */
+export const CARD_H = cardHeight(TITLE_MAX_LINES);
 
 /** Lane and inbox titles: Excalifont 28 (Excalidraw's "L"), bound inside the area at its top. */
 export const AREA_TITLE_SIZE = 28;
@@ -82,7 +87,13 @@ export const INBOX_W = 20 + 2 * (CARD_W + 20);
 export const INBOX_H = AREA_HEADER + 8 * (CARD_H + 20);
 export const INBOX_ORIGIN = { x: 40, y: 80 };
 
-export type CardMeta = { kind: "card"; source: Session["source"]; sessionId: string };
+/**
+ * `appHeight`: the height the app last gave the rect (fitted to the title). A
+ * rect whose height differs was resized by the user and is never refitted;
+ * cards made before fitting have none and count as app-sized only at exactly
+ * the old fixed height, CARD_H.
+ */
+export type CardMeta = { kind: "card"; source: Session["source"]; sessionId: string; appHeight?: number };
 export type CardPartKind = "card-title" | "card-details" | "card-logo";
 export type CardTextKind = Exclude<CardPartKind, "card-logo">;
 export type CardPartMeta = { kind: CardPartKind; sessionId: string; cardId: string };
@@ -370,7 +381,7 @@ export function makeCardLogo(
   };
 }
 
-/** A new card: rect, title, details and logo, all in one fresh group. */
+/** A new card: rect, title, details and logo, all in one fresh group; as tall as its title needs. */
 export function makeCard(
   s: Session,
   at: { x: number; y: number },
@@ -378,7 +389,9 @@ export function makeCard(
   now: number,
   measure: Measure = estimateMeasure,
 ): [ExcalidrawRectangleElement, ExcalidrawTextElement, ExcalidrawTextElement, ...ExcalidrawImageElement[]] {
-  const meta: CardMeta = { kind: "card", source: s.source, sessionId: s.id };
+  const title = titleText(s, measure);
+  const height = cardHeight(lineCount(title));
+  const meta: CardMeta = { kind: "card", source: s.source, sessionId: s.id, appHeight: height };
   const rect: ExcalidrawRectangleElement = {
     ...base(gen, now),
     id: gen.id(),
@@ -386,7 +399,7 @@ export function makeCard(
     x: at.x,
     y: at.y,
     width: CARD_W,
-    height: CARD_H,
+    height,
     groupIds: [gen.id()],
     ...statusStyle(s, now),
     roundness: { type: 3 },
@@ -394,7 +407,6 @@ export function makeCard(
     link: prLink(s),
     customData: { excaliagent: meta },
   };
-  const title = titleText(s, measure);
   return [
     rect,
     makeCardPart("card-title", rect, s.id, title, gen, now, measure),

@@ -9,6 +9,7 @@ import { expect, test } from "@playwright/test";
 import { herdrRequest } from "../../src/server/panes/herdr-client.ts";
 import { startIsolatedHerdr, type IsolatedHerdr } from "../../src/server/panes/__fixtures__/isolated-herdr.ts";
 import { startBoard, type Board } from "./board.ts";
+import { scrollToElement } from "./view.ts";
 
 const hasHerdr = (() => {
   try {
@@ -87,18 +88,7 @@ test("a card shows its herdr workspace and tab, and double-click focuses the pan
   const before = await focusedPane();
   expect(before).not.toBe(paneA);
 
-  const point = await page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    return {
-      x: (rect.x + rect.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft,
-      y: (rect.y + rect.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop,
-    };
-  }, SESSION);
+  const point = await scrollToElement(page, { kind: "card", sessionId: SESSION });
   const focusCall = page.waitForResponse((r) => r.url().endsWith("/api/focus"));
   await page.mouse.dblclick(point.x, point.y);
   expect((await focusCall).status()).toBe(204);
@@ -137,17 +127,7 @@ test("double-clicking a dormant card resumes it in a new tab of the matching her
   await expect.poll(() => board.savedCards().find((c) => c.sessionId === id)).toBeTruthy();
   await page.keyboard.press("Escape");
 
-  const point = await page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    return {
-      x: (rect.x + rect.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft,
-      y: (rect.y + rect.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop,
-    };
-  }, id);
+  const point = await scrollToElement(page, { kind: "card", sessionId: id });
   const resumeCall = page.waitForResponse((r) => r.url().endsWith("/api/resume"));
   await page.mouse.dblclick(point.x, point.y);
   expect((await resumeCall).status()).toBe(204);

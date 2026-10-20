@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { seedDemo } from "../mock-claude.ts";
 import { startBoard, type Board } from "./board.ts";
+import { scrollToElement } from "./view.ts";
 
 const ID = {
   busy: "11111111-0000-4000-8000-000000000001",
@@ -56,19 +57,7 @@ async function moveCard(page: Page, sessionId: string, x: number, y: number) {
 
 /** Viewport point at the center of a card, scrolled into view. */
 async function cardPoint(page: Page, sessionId: string) {
-  return page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw
-      .getSceneElements()
-      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    const sx = rect.x + rect.width / 2;
-    const sy = rect.y + rect.height / 2;
-    return { x: (sx + s.scrollX) * s.zoom.value + s.offsetLeft, y: (sy + s.scrollY) * s.zoom.value + s.offsetTop };
-  }, sessionId);
+  return scrollToElement(page, { kind: "card", sessionId });
 }
 
 /** Our panel is fully in the viewport, beside Excalidraw's menu, top-aligned unless clamped. */
@@ -122,6 +111,47 @@ test("status changes recolor the card within 2 s, without moving it", async ({ p
   expect(card(ID.busy)?.label).toContain("needs user: input needed");
 });
 
+
+test("cards fit their title: one-line titles get short cards, a long title a tall one; resized cards stay", async ({ page }) => {
+  const LONG = "11111111-0000-4000-8000-0000000000aa";
+  board.mock.add({
+    id: LONG,
+    cwd: "/home/alice/src/demo-app",
+    title: "Investigate the intermittent checkout timeout on staging",
+    status: "busy",
+  });
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(6);
+  const short = card(ID.busy)!;
+  const tall = card(LONG)!;
+  expect(tall.label).toContain("Investigate the");
+  expect(tall.height - short.height).toBe(25); // one title line (20 px × 1.25)
+  expect(short.appHeight).toBe(short.height);
+  expect(tall.appHeight).toBe(tall.height);
+
+  // The user resizes one card; a longer title later grows only the other.
+  await page.evaluate((sessionId) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const els = excalidraw.getSceneElementsIncludingDeleted();
+    excalidraw.updateScene({
+      elements: els.map((e: any) =>
+        e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId
+          ? { ...e, height: 300, version: e.version + 1, versionNonce: e.versionNonce + 1 }
+          : e,
+      ),
+      captureUpdate: "IMMEDIATELY",
+    });
+  }, ID.idleCold);
+  await expect.poll(() => card(ID.idleCold)?.height).toBe(300);
+  const longer = "Bump every dependency and fix whatever breaks along the way";
+  board.mock.setTitle(ID.idleCold, longer);
+  board.mock.setTitle(ID.busy, longer);
+  await expect.poll(() => card(ID.busy)?.height).toBe(tall.height);
+  expect(card(ID.busy)).toMatchObject({ x: short.x, y: short.y, appHeight: tall.height });
+  await expect.poll(() => card(ID.idleCold)?.label).toContain("Bump every dependency");
+  expect(card(ID.idleCold)?.height).toBe(300);
+  await page.screenshot({ path: "test-results/board-fit-title.png" });
+});
 test("layout survives a page reload and a server restart without duplicates", async ({ page }) => {
   await open(page);
   await expect.poll(() => board.savedCards().length).toBe(5);
@@ -222,7 +252,8 @@ test("an exited session's card turns dormant and comes back live on resume", asy
   board.mock.exit(ID.idleCold);
   await expect.poll(() => card(ID.idleCold)?.backgroundColor).toBe(DORMANT);
   expect(card(ID.idleCold)?.strokeStyle).toBe("dashed");
-  expect(card(ID.idleCold)?.label).toContain("dormant");
+  // The texts follow once the board has looked the exited session up (the restyle comes first).
+  await expect.poll(() => card(ID.idleCold)?.label).toContain("dormant");
 
   board.mock.resume(ID.idleCold);
   await expect.poll(() => card(ID.idleCold)?.strokeStyle).toBe("solid");
@@ -361,15 +392,7 @@ test("a lane is renamed by double-clicking it: its title is bound inside", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);
-  const point = await page.evaluate(async () => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const lane = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "lane");
-    excalidraw.scrollToContent(lane, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const { scrollX, scrollY, zoom, offsetLeft, offsetTop } = excalidraw.getAppState();
-    const x = lane.x + lane.width / 2, y = lane.y + lane.height / 2;
-    return { x: (x + scrollX) * zoom.value + offsetLeft, y: (y + scrollY) * zoom.value + offsetTop };
-  });
+  const point = await scrollToElement(page, { kind: "lane" });
   await page.mouse.dblclick(point.x, point.y);
   const editor = page.locator("textarea.excalidraw-wysiwyg");
   await expect(editor).toHaveValue("To Do");
