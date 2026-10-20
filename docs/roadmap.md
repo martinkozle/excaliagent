@@ -26,6 +26,8 @@ details. When something gets built, close its issue and describe it in
 | [#7 Arrows between related sessions](https://github.com/martinkozle/excaliagent/issues/7) | board |
 | [#8 Fit card height to the title](https://github.com/martinkozle/excaliagent/issues/8) | board, good first issue |
 | [#11 Tidy cards in a lane](https://github.com/martinkozle/excaliagent/issues/11) | board |
+| [#12 A character per session (packs)](https://github.com/martinkozle/excaliagent/issues/12) | board |
+| [#13 Hand-gesture control via the webcam](https://github.com/martinkozle/excaliagent/issues/13) | board, experimental |
 
 ## Releasing
 
