@@ -49,6 +49,8 @@ describe("list", () => {
       live: true,
       pid: 101,
       prLinks: ["https://github.com/example/demo-app/pull/12", "https://github.com/example/demo-app/pull/13"],
+      resumeCommand: `claude --resume ${sid(1)}`,
+      canEnd: true,
     });
   });
 
@@ -90,6 +92,8 @@ describe("list", () => {
     expect(s).toEqual<Session>({
       id: sid(9), source: "claude", cwd: ALICE, repo: "demo-app", name: "demo-app-09", status: "idle",
       lastActivityAt: 5, cacheTtlMs: 0, cacheExpiresAt: 0, live: true, pid: 7, prLinks: [],
+      resumeCommand: `claude --resume ${sid(9)}`,
+      canEnd: true,
     });
   });
 
@@ -137,6 +141,7 @@ describe("listDormant", () => {
       id: sid(3), source: "claude", cwd: ALICE, repo: "demo-app", branch: "main", status: "dormant",
       lastActivityAt: ms("2026-10-18T08:20:00.000Z"), cacheTtlMs: HOUR,
       cacheExpiresAt: ms("2026-10-18T08:20:00.000Z") + HOUR, live: false, prLinks: [], continuedIn: sid(7),
+      resumeCommand: `claude --resume ${sid(3)}`,
     });
   });
 

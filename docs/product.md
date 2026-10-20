@@ -16,8 +16,8 @@ context I could have continued cheaply.
 ## Who it is for
 
 The author first. Published as an open-source npm package for anyone running
-several Claude Code sessions, with or without herdr. Other harnesses (Codex,
-OpenCode) are a later adapter.
+several Claude Code or Codex sessions, with or without herdr. OpenCode is a
+later adapter.
 
 ## Goals
 
@@ -54,7 +54,7 @@ OpenCode) are a later adapter.
   with cold cache and dormant cards are muted.
 - The card shows a handwritten title and smaller details: repo · branch,
   status · waiting-for · age, cache warmth, `herdr: workspace › tab` (or "not in
-  herdr"), PR link, and the harness logo in the corner (Claude today), so
+  herdr"), PR link, and the harness logo in the corner (Claude, Codex), so
   cards of different agents tell apart.
 - Colour and text update within 2 s of a change.
 - A card is as tall as its title needs (one or two lines) and grows or shrinks
@@ -62,6 +62,16 @@ OpenCode) are a later adapter.
 - The app never changes position, size (beyond that card height), rotation,
   grouping, frame membership, or any element it did not create. The only
   exception is S7, and only as the direct result of my own gesture.
+
+### S2b. Codex sessions (done)
+
+- Running Codex sessions (Linux) get cards like Claude's, with a Codex logo:
+  busy while a turn runs, else idle. Codex records neither approval prompts
+  nor cache warmth, so its cards never show "needs input" or a cache line.
+- Parked Codex sessions are in the picker; resume is `codex resume <id>`; Stop
+  ends the Codex terminal app, offered only when the board knows that process
+  for sure (`codex resume <id>`, `codex exec`).
+- `--no-codex` turns them off, `--codex-dir` points elsewhere.
 
 ### S3. Jump to the session (done)
 
@@ -80,7 +90,9 @@ OpenCode) are a later adapter.
   else a new workspace. Without herdr the resume command is copied.
 - Right-click on a card adds an excaliagent section to the menu: focus or
   resume, copy the resume command (with or without `cd`), open the PR, stop a
-  running session (confirmed; the conversation is kept).
+  running session (confirmed; the conversation is kept; only when the board
+  knows exactly which process shows it). A card whose session is unknown (its
+  files are gone) has no section.
 - A card follows its session when Claude Code continues it in a background
   session (`continued-in`).
 

@@ -319,6 +319,12 @@ describe("harness logo", () => {
     expect(makeCardLogo(rect, "s1", "other" as "claude", testGen(), NOW)).toBeUndefined();
   });
 
+  it("a Codex session's card carries the Codex glyph, and its rect records the source", () => {
+    const [rect, , , logo] = makeCard(session({ source: "codex" }), { x: 0, y: 0 }, testGen(), NOW);
+    expect(logo!.fileId).toBe(LOGOS.codex.fileId);
+    expect(rect.customData).toMatchObject({ excaliagent: { kind: "card", source: "codex", sessionId: "s1" } });
+  });
+
   it("titles wrap to the narrower width beside the logo", () => {
     const m: Measure = (t) => t.length * 10;
     const t = titleText(session({ title: "x".repeat(25) }), m); // 250px: fits INNER_W, not TITLE_W

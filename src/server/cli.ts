@@ -10,6 +10,9 @@ import { createHerdrLink, createNoPaneLink } from "./panes/herdr.ts";
 import { createSceneStore, defaultStateDir } from "./scene-store.ts";
 import { createCharacterStore } from "./characters.ts";
 import { createClaudeSource } from "./sources/claude.ts";
+import { createCodexSource } from "./sources/codex.ts";
+import { combineSources } from "./sources/multi.ts";
+import { procRootFromEnv } from "./sources/proc.ts";
 import { loadOrCreateToken } from "./token.ts";
 import { clearRunning, findRunning, recordRunning } from "./instance.ts";
 
@@ -42,7 +45,12 @@ async function main(args: CliArgs) {
     return;
   }
 
-  const source = createClaudeSource({ claudeDir: args.claudeDir });
+  // Tests and the demo point process scans at a synthetic tree (never documented as a flag).
+  const procRoot = procRootFromEnv();
+  const source = combineSources([
+    createClaudeSource({ claudeDir: args.claudeDir }),
+    ...(args.codex ? [createCodexSource({ codexDir: args.codexDir, ...(procRoot ? { procRoot } : {}) })] : []),
+  ]);
   const desktop = args.herdr && args.raise ? createDesktop({ env: process.env }) : undefined;
   const panes = args.herdr ? createHerdrLink({ desktop }) : createNoPaneLink();
   const hub = createHub({ source, panes });
@@ -85,6 +93,8 @@ async function main(args: CliArgs) {
   const url = `http://127.0.0.1:${server.port}/?token=${token}`;
   console.log(`excaliagent ${args.dev ? "(dev) " : ""}listening on http://127.0.0.1:${server.port}`);
   console.log(`scene: ${scenes.path}`);
+  console.log(`sources: claude${args.codex ? ", codex" : ""}`);
+  if (procRoot) console.log(`processes: ${procRoot} (EXCALIAGENT_PROC_ROOT)`);
   console.log(`herdr: ${panes.available() ? "connected" : args.herdr ? "not running (will retry)" : "disabled"}`);
   if (args.herdr) console.log(`raise window on focus: ${!desktop ? "off (--no-raise)" : desktop.kind === "none" ? "unsupported here" : desktop.kind}`);
   console.log(`open: ${url}`);

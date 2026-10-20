@@ -13,13 +13,16 @@ export interface CliArgs {
   raise: boolean;
   stateDir: string | undefined;
   claudeDir: string | undefined;
+  /** Show OpenAI Codex sessions too. */
+  codex: boolean;
+  codexDir: string | undefined;
   help: boolean;
   version: boolean;
 }
 
 export const USAGE = `Usage: excaliagent [options]
 
-A spatial Excalidraw board for your Claude Code sessions.
+A spatial Excalidraw board for your coding-agent sessions (Claude Code, Codex).
 
 Options:
   --port <n>          Port on 127.0.0.1 (default: 7357, or a random free port
@@ -27,6 +30,8 @@ Options:
   --no-open           Do not open the browser, just print the URL
   --state-dir <dir>   Where scene.json lives (default: $XDG_STATE_HOME/excaliagent)
   --claude-dir <dir>  Claude Code home (default: ~/.claude)
+  --codex-dir <dir>   Codex home (default: $CODEX_HOME, else ~/.codex)
+  --no-codex          Do not show Codex sessions
   --no-herdr          Do not link sessions to herdr panes
   --no-raise          Focus the herdr pane but do not raise its terminal window
                       (raising supports Hyprland, Sway and macOS)
@@ -48,6 +53,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       raise: { type: "boolean", default: true },
       "state-dir": { type: "string" },
       "claude-dir": { type: "string" },
+      codex: { type: "boolean", default: true },
+      "codex-dir": { type: "string" },
       help: { type: "boolean", short: "h", default: false },
       version: { type: "boolean", short: "v", default: false },
     },
@@ -65,6 +72,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     raise: values.raise,
     stateDir: values["state-dir"],
     claudeDir: values["claude-dir"],
+    codex: values.codex,
+    codexDir: values["codex-dir"],
     help: values.help,
     version: values.version,
   };

@@ -23,6 +23,8 @@ export function session(over: Partial<Session> = {}): Session {
     pid: 100,
     pane: { paneId: "w7:p1", workspaceId: "w7" },
     prLinks: [],
+    resumeCommand: `claude --resume ${over.id ?? "s1"}`,
+    canEnd: true,
     ...over,
   };
 }

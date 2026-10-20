@@ -54,7 +54,7 @@ import {
   tidyAllMoves,
   tidyMoves,
 } from "./lanes.ts";
-import { logoFiles } from "./logos.ts";
+import { HARNESS_NAMES, LOGOS, logoFiles } from "./logos.ts";
 import { emojiFileId, type CharactersData } from "../shared/packs.ts";
 import {
   allowCharacter,
@@ -803,6 +803,16 @@ export function App() {
               ?.filter((s) => !carded.has(s.id))
               .map((s) => (
                 <div key={s.id} className="excaliagent-picker-row" style={rowStyle}>
+                  {LOGOS[s.source] && (
+                    <img
+                      src={LOGOS[s.source].dataURL}
+                      alt={HARNESS_NAMES[s.source]}
+                      title={HARNESS_NAMES[s.source]}
+                      width={16}
+                      height={16}
+                      style={{ flex: "none" }}
+                    />
+                  )}
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={ellipsis} title={s.title ?? s.id}>
                       <strong>{s.title ?? s.name ?? s.id.slice(0, 8)}</strong>
@@ -827,7 +837,7 @@ export function App() {
       {menuFor && menuHost && (
         <CardMenu
           host={menuHost}
-          items={menuFor.kind === "card" ? menuItems(menuFor.sessionId, sessionFor(menuFor.sessionId)) : laneMenuItems()}
+          items={menuFor.kind === "card" ? menuItems(sessionFor(menuFor.sessionId)) : laneMenuItems()}
           onAction={onMenuAction}
           onClose={closeMenu}
         />
@@ -965,8 +975,9 @@ async function focusSession(ex: ExcalidrawImperativeAPI, sessionId: string) {
 /** Right-click → Stop session: confirm, then the server ends it (SIGTERM; the conversation is kept). */
 async function endSession(ex: ExcalidrawImperativeAPI, sessionId: string, session: Session | undefined) {
   const name = session?.title || session?.name || session?.repo || "this session";
+  const harness = session ? HARNESS_NAMES[session.source] ?? "The agent" : "The agent";
   const ok = window.confirm(
-    `Stop "${name}"?\n\nClaude Code exits as if its terminal was closed; work in progress is interrupted. The conversation is kept, and double-clicking the card resumes it.`,
+    `Stop "${name}"?\n\n${harness} exits as if its terminal was closed; work in progress is interrupted. The conversation is kept, and double-clicking the card resumes it.`,
   );
   if (!ok) return;
   let ended: boolean;
@@ -994,8 +1005,12 @@ async function resumeSession(ex: ExcalidrawImperativeAPI, sessionId: string, ses
     return;
   }
   if (result === "live") return focusSession(ex, sessionId);
-  const command = session ? resumeCommand(session) : `claude --resume ${sessionId}`;
+  const command = session && resumeCommand(session);
   const why = result === "no herdr" ? "herdr not running" : "Could not resume";
+  if (!command) {
+    ex.setToast({ message: `${why}.`, duration: 4000, closable: true });
+    return;
+  }
   await copyText(ex, command, `${why}. Copied: ${command}`, `${why}. Resume with: ${command}`);
 }
 

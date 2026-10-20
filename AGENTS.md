@@ -1,11 +1,11 @@
 # excaliagent agent guidance
 
-A local Excalidraw board where each coding-agent session (Claude Code today) is
+A local Excalidraw board where each coding-agent session (Claude Code, Codex) is
 a card. Read these before changing anything:
 
 - `docs/product.md`: the goal state. What the board must do and must never do.
 - `docs/design.md`: architecture, decisions with their reasons, and the
-  verified (undocumented) data formats of Claude Code and herdr, with quirks.
+  verified (undocumented) data formats of Claude Code, Codex and herdr, with quirks.
 - `docs/roadmap.md`: platforms, open questions, and a map of the bigger tasks,
   which live as GitHub issues (`gh issue list`).
 
@@ -31,16 +31,20 @@ about Claude Code or herdr, write down the version you verified it on.
   rotated, arrow-bound or user-grouped cards). Nothing moves on its own:
   reconcile and status changes never move anything.
 - **Never send input to an agent session.** The only side effects: focusing a
-  pane, starting `claude --resume <id>` in a *new* pane, and, after the user
+  pane, starting the session's resume command (`claude --resume <id>`,
+  `codex resume <id>`, built by its `Source`) in a *new* pane, and, after the user
   confirms, ending a running session with SIGTERM (as if its terminal closed;
-  only to a pid from Claude's registry that is still a `claude` process).
+  only to a pid from Claude's registry that is still a `claude` process, or
+  to a Codex process matched exactly, never by a guess, that is still a
+  `codex` process, never Codex's daemon).
   Commands and pids are derived server-side from validated session ids, never
   from request bodies.
 - **Loopback only**, with the access token cookie, Host check and same-origin
   writes on every `/api/*` route. New side-effecting routes get the same checks.
 - **Harness-specific code stays behind interfaces**: `Source`
   (`src/server/sources/types.ts`) and `PaneLink` (`src/server/panes/types.ts`).
-  Nothing in `src/web` knows about Claude Code or herdr.
+  Nothing in `src/web` knows about Claude Code, Codex or herdr beyond a
+  display name and a logo per `Session.source`.
 - **Fail soft.** A malformed file, an unknown status, or a dead socket degrades
   one card or one feature; the board keeps working.
 - **Zero runtime dependencies** for the server (`node:` modules only). The web
@@ -49,11 +53,23 @@ about Claude Code or herdr, write down the version you verified it on.
 ## Tests and data (hard rules)
 
 - **Never use the user's real data.** No fixtures, recordings or test runs
-  against the real `~/.claude` or the user's running herdr. Fixtures are
+  against the real `~/.claude`, `~/.codex` or the user's running herdr. Learn
+  harness formats from upstream source and throwaway runs with a temp home. Fixtures are
   synthetic (`/home/alice/...`, `example/demo-app`). `src/privacy.test.ts` fails
   if any fixture contains this machine's home path or user name.
+- **Never scan the real processes under test.** Sources that look at running
+  processes take a proc root; every server a test, the demo or the
+  screenshots start gets `EXCALIAGENT_PROC_ROOT` pointing at a synthetic tree
+  (`test/mock-proc.ts`), and `test/e2e/board.ts` refuses a server that did not
+  take it. `src/server/sources/no-real-proc.test.ts` fails if a source reads
+  `/proc` when given another root. Dummy pids stay real processes, so Stop
+  is a real SIGTERM. Mock session ids are random, so parallel workers never
+  share one.
 - Mock Claude: `test/mock-claude.ts` seeds a throwaway Claude home with dummy
-  processes (`createMockClaude`, `seedDemo`) and tears it down.
+  processes (`createMockClaude`, `seedDemo`) and tears it down. Mock Codex:
+  `test/mock-codex.ts` (rollouts, and lock files held, per the synthetic
+  /proc, by dummy processes). Every server a test or script starts gets
+  `--claude-dir` and `--codex-dir` (or `--no-codex`) pointing at mocks.
 - Real herdr only as an **isolated server**:
   `src/server/panes/__fixtures__/isolated-herdr.ts` (temp HOME, own socket,
   `HERDR_*` scrubbed; refuses the live socket). Browser e2e servers always run

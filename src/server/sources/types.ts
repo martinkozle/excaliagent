@@ -14,7 +14,8 @@ export interface Source {
   get(id: string): Promise<Session | undefined>;
   /**
    * Ask a running session to exit, like closing its terminal (the conversation
-   * is kept and can be resumed). "not-live" when it is not running (any more).
+   * is kept and can be resumed). "not-live" when it is not running (any more),
+   * "unsupported" when this harness cannot be stopped safely.
    */
-  end?(id: string): Promise<"ended" | "not-live">;
+  end?(id: string): Promise<"ended" | "not-live" | "unsupported">;
 }

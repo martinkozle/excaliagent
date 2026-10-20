@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Page } from "@playwright/test";
 import { seedDemo } from "../test/mock-claude.ts";
+import { seedCodexDemo } from "../test/mock-codex.ts";
 import { startBoard } from "../test/e2e/board.ts";
 
 const out = join(import.meta.dirname, "..", "docs", "images");
@@ -48,14 +49,16 @@ async function moveToLane(page: Page, sessionId: string, lane: string, slot = 0)
   );
 }
 
-const board = await startBoard(seedDemo);
+let codexIds = { busy: "", idle: "", parked: "" };
+const board = await startBoard(seedDemo, { codexSeed: (codex) => void (codexIds = seedCodexDemo(codex)) });
+const cards = 7;
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined });
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 });
   await page.goto(board.url);
   // Excalidraw's onboarding hint ("To move canvas…") is noise in a screenshot.
   await page.addStyleTag({ content: ".HintViewer { display: none !important; }" });
-  await page.waitForFunction(() => (window as any).__excaliagent?.excalidraw.getSceneElements().filter((e: any) => e.customData?.excaliagent?.kind === "card").length >= 5);
+  await page.waitForFunction((n) => (window as any).__excaliagent?.excalidraw.getSceneElements().filter((e: any) => e.customData?.excaliagent?.kind === "card").length >= n, cards, { timeout: 10_000 });
 
   // Add a dormant session from the picker, then triage the cast into lanes.
   await page.getByTitle("Add a dormant session to the board").click();
@@ -63,6 +66,7 @@ try {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
   await moveToLane(page, ID.oauth, "In Progress");
+  await moveToLane(page, codexIds.busy, "In Progress", 1);
   await moveToLane(page, ID.flaky, "Review");
   await moveToLane(page, ID.design, "Blocked");
   await moveToLane(page, ID.migration, "Parked");

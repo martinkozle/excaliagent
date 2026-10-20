@@ -260,7 +260,7 @@ export function createAppServer(opts: AppServerOptions): AppServer {
       case "POST /api/end": {
         const body = (await readJson(req)) as { sessionId?: unknown };
         if (typeof body?.sessionId !== "string" || !SESSION_ID.test(body.sessionId)) {
-          throw new HttpError(400, "sessionId must be a session UUID");
+          throw new HttpError(400, "sessionId must be a session id");
         }
         const result = await opts.hub.end(body.sessionId);
         if (result === "ended") {
@@ -282,7 +282,7 @@ export function createAppServer(opts: AppServerOptions): AppServer {
       case "POST /api/resume": {
         const body = (await readJson(req)) as { sessionId?: unknown };
         if (typeof body?.sessionId !== "string" || !SESSION_ID.test(body.sessionId)) {
-          throw new HttpError(400, "sessionId must be a session UUID");
+          throw new HttpError(400, "sessionId must be a session id");
         }
         const result = await opts.hub.resume(body.sessionId);
         if (result === "resumed") {

@@ -27,14 +27,14 @@ src/server/              Node server, no runtime dependencies
   http.ts                routes, auth, SSE
   hub.ts                 joins a Source with a PaneLink, fans out updates
   scene-store.ts         atomic scene.json
-  sources/               Claude Code adapter (registry, transcripts, git)
+  sources/               Claude Code and Codex adapters (registry, transcripts, rollouts, locks, git)
   panes/                 herdr adapter (socket client, pid → pane, resume)
   desktop/               raise the terminal window (Hyprland, Sway)
 src/web/                 React + Excalidraw frontend
   reconcile.ts           sessions + scene → patches (pure, the core)
   cards.ts, inbox.ts     card elements, labels, colours, placement
   App.tsx                wiring: scene load/save, SSE, double-click, picker
-test/                    mock Claude home, Playwright e2e
+test/                    mock Claude and Codex homes, Playwright e2e
 docs/                    product, design, roadmap
 ```
 

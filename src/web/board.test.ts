@@ -10,7 +10,6 @@ import {
   menuPlacement,
   mergeSessions,
   resumeCommand,
-  resumeCommandPlain,
   saveHash,
   filesToUpload,
   imageFileIds,
@@ -67,10 +66,14 @@ describe("cardAt", () => {
 });
 
 describe("resumeCommand", () => {
-  it("quotes the cwd for the shell", () => {
+  it("prefixes the server's command with a cd, quoting the cwd for the shell", () => {
     expect(resumeCommand(session({ id: "abc", cwd: "/home/me/it's here" }))).toBe(
       "cd '/home/me/it'\\''s here' && claude --resume abc",
     );
+    expect(resumeCommand(session({ source: "codex", cwd: "/w", resumeCommand: "codex resume abc" }))).toBe("cd '/w' && codex resume abc");
+  });
+  it("is undefined without a server command", () => {
+    expect(resumeCommand(session({ resumeCommand: undefined }))).toBeUndefined();
   });
 });
 
@@ -83,18 +86,12 @@ describe("saveHash", () => {
   });
 });
 
-describe("resume commands", () => {
-  it("plain and with cd", () => {
-    expect(resumeCommandPlain("abc")).toBe("claude --resume abc");
-  });
-});
-
 describe("menuItems", () => {
-  const labels = (s: Session | undefined, id = "s1") => menuItems(id, s).map((i) => i.label);
+  const labels = (s: Session | undefined) => menuItems(s).map((i) => i.label);
 
   it("live with pane: focus, copies, PR, then stop (last, it is destructive)", () => {
     const s = session({ prLinks: ["https://github.com/a/b/pull/12"] });
-    expect(menuItems("s1", s)).toEqual([
+    expect(menuItems(s)).toEqual([
       { action: "focus", label: "Focus pane" },
       { action: "copy", label: "Copy resume command", text: "claude --resume s1" },
       { action: "copy", label: "Copy resume command with cd", text: resumeCommand(s) },
@@ -113,8 +110,20 @@ describe("menuItems", () => {
     expect(labels(s)).toEqual(["Resume in herdr", "Copy resume command", "Copy resume command with cd", "Open MR !3", "Change character…"]);
   });
 
-  it("unknown session: only the plain copy", () => {
-    expect(labels(undefined)).toEqual(["Copy resume command", "Change character…"]);
+  it("no Stop when the server cannot tell the process for sure (canEnd unset)", () => {
+    expect(labels(session({ source: "codex", canEnd: undefined }))).not.toContain("Stop session…");
+  });
+
+  it("unknown session: only Change character… (only the server knows how to resume it)", () => {
+    expect(labels(undefined)).toEqual(["Change character…"]);
+  });
+
+  it("copies whatever command the server built for the harness", () => {
+    const s = session({ id: "t1", source: "codex", cwd: "/w", live: false, status: "dormant", resumeCommand: "codex resume t1" });
+    expect(menuItems(s).filter((i) => i.action === "copy")).toEqual([
+      { action: "copy", label: "Copy resume command", text: "codex resume t1" },
+      { action: "copy", label: "Copy resume command with cd", text: "cd '/w' && codex resume t1" },
+    ]);
   });
 
   it("non-standard PR url: generic label", () => {

@@ -4,13 +4,18 @@ import { parseCliArgs } from "./args.ts";
 describe("parseCliArgs", () => {
   it("has sane defaults", () => {
     expect(parseCliArgs([])).toEqual({
-      port: undefined, open: true, dev: false, herdr: true, raise: true, stateDir: undefined, claudeDir: undefined, help: false, version: false,
+      port: undefined, open: true, dev: false, herdr: true, raise: true, stateDir: undefined, claudeDir: undefined,
+      codex: true, codexDir: undefined, help: false, version: false,
     });
   });
   it("parses every flag", () => {
     expect(
       parseCliArgs(["--port", "4123", "--no-open", "--dev", "--no-herdr", "--state-dir", "/s", "--claude-dir", "/c"]),
     ).toMatchObject({ port: 4123, open: false, dev: true, herdr: false, stateDir: "/s", claudeDir: "/c" });
+  });
+  it("--codex-dir points at a Codex home; --no-codex turns Codex off", () => {
+    expect(parseCliArgs(["--codex-dir", "/x"])).toMatchObject({ codex: true, codexDir: "/x" });
+    expect(parseCliArgs(["--no-codex"])).toMatchObject({ codex: false });
   });
   it("--no-raise keeps herdr focus but does not raise the terminal window", () => {
     expect(parseCliArgs(["--no-raise"])).toMatchObject({ herdr: true, raise: false });
