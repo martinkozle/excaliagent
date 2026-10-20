@@ -5,6 +5,7 @@ import {
   MainMenu,
   Sidebar,
   restoreElements,
+  sceneCoordsToViewportCoords,
   viewportCoordsToSceneCoords,
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
@@ -23,10 +24,13 @@ import {
   filesToUpload,
   idsToLookup,
   imageFileIds,
+  laneMenuItems,
   menuItems,
   mergeSessions,
+  readLaneDrop,
   resumeCommand,
   saveHash,
+  writeLaneDrop,
   type MenuItem,
 } from "./board.ts";
 import { CardMenu } from "./CardMenu.tsx";
@@ -34,7 +38,17 @@ import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
 import { LOGOS, logoFiles } from "./logos.ts";
-import { addLane, appendLanes } from "./lanes.ts";
+import {
+  addLane,
+  appendLanes,
+  draggedCard,
+  dropLaneAt,
+  dropZone,
+  laneAt,
+  moveCards,
+  slotBelow,
+  tidyMoves,
+} from "./lanes.ts";
 
 // Serve Excalidraw's local fonts from our own server; missing fonts (Xiaolai CJK) fall back to CDN.
 (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH = "/";
@@ -60,14 +74,40 @@ const BUILT_IN_FILES: ReadonlySet<string> = new Set(Object.values(LOGOS).map((l)
 
 const byId = (files: BinaryFileData[]): BinaryFiles => Object.fromEntries(files.map((f) => [f.id, f]));
 
+/** localStorage, or undefined where the browser refuses it (the accessor itself can throw). */
+function settingsStore(): Storage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the right-click menu is for: a card (by session) or a lane. */
+type MenuTarget = { kind: "card"; sessionId: string } | { kind: "lane"; laneId: string };
+
+type ViewBox = { left: number; top: number; width: number; height: number };
+/** The highlighted drop zone and the outline of where the card will land, in viewport px. */
+type DropHint = { laneId: string; cardId: string; zone: ViewBox; slot: ViewBox };
+
+/** A scene box in viewport (client) px. */
+function toViewport(box: { x: number; y: number; width: number; height: number }, appState: AppState): ViewBox {
+  const { x, y } = sceneCoordsToViewportCoords({ sceneX: box.x, sceneY: box.y }, appState);
+  const z = appState.zoom.value;
+  return { left: x, top: y, width: box.width * z, height: box.height * z };
+}
+
 export function App() {
   const [initialData, setInitialData] = useState<ExcalidrawInitialDataState | null>(null);
   const [excalidraw, setExcalidraw] = useState<ExcalidrawImperativeAPI | null>(null);
   const [connected, setConnected] = useState(true);
   const [pickerRows, setPickerRows] = useState<Session[] | null>(null);
   const [fontsLoaded, setFontsLoaded] = useState(false);
-  /** Card whose right-click menu is open. */
-  const [menuFor, setMenuFor] = useState<string | null>(null);
+  /** Card or lane whose right-click menu is open. */
+  const [menuFor, setMenuFor] = useState<MenuTarget | null>(null);
+  /** Dropping a lone card on a lane's title band stacks it in the lane (setting, per browser). */
+  const [laneDrop, setLaneDrop] = useState(() => readLaneDrop(settingsStore()));
+  const [dropHint, setDropHint] = useState<DropHint | null>(null);
 
   const live = useRef<Session[]>([]);
   const known = useRef(new Map<string, Session>());
@@ -224,22 +264,26 @@ export function App() {
   useEffect(() => {
     const el = wrapper.current;
     if (!el || !excalidraw) return;
-    const cardUnder = (event: MouseEvent): string | undefined => {
+    const targetUnder = (event: MouseEvent): MenuTarget | undefined => {
       if (!(event.target instanceof HTMLCanvasElement)) return undefined;
       const appState = excalidraw.getAppState() as AppState;
       if (appState.activeTool.type !== "selection") return undefined;
       const { x, y } = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
-      return cardAt(excalidraw.getSceneElements(), x, y);
+      const elements = excalidraw.getSceneElements();
+      const sessionId = cardAt(elements, x, y);
+      if (sessionId) return { kind: "card", sessionId };
+      const lane = laneAt(elements, x, y);
+      return lane ? { kind: "lane", laneId: lane.id } : undefined;
     };
     const onDblClick = (event: MouseEvent) => {
-      const sessionId = cardUnder(event);
-      if (!sessionId) return;
+      const target = targetUnder(event);
+      if (target?.kind !== "card") return;
       event.stopPropagation();
       event.preventDefault();
-      void openSession(excalidraw, sessionId, sessionFor(sessionId));
+      void openSession(excalidraw, target.sessionId, sessionFor(target.sessionId));
     };
     // Do not preventDefault: Excalidraw still opens its own menu; ours glues onto it.
-    const onContextMenu = (event: MouseEvent) => setMenuFor(cardUnder(event) ?? null);
+    const onContextMenu = (event: MouseEvent) => setMenuFor(targetUnder(event) ?? null);
     el.addEventListener("dblclick", onDblClick, true);
     el.addEventListener("contextmenu", onContextMenu, true);
     return () => {
@@ -271,13 +315,99 @@ export function App() {
     save(true);
   }, [excalidraw, save]);
 
+  /**
+   * Move cards in direct response to a user gesture (a drop on a lane title,
+   * "Tidy cards"): one undoable edit, unlike reconcile's patches.
+   */
+  const placeCards = useCallback(
+    (moves: ReadonlyMap<string, { x: number; y: number }>) => {
+      const ex = excalidraw;
+      if (!ex || !moves.size) return;
+      const elements = moveCards(ex.getSceneElementsIncludingDeleted(), moves, defaultGen, Date.now());
+      ex.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+      save(true);
+    },
+    [excalidraw, save],
+  );
+
+  const tidyLane = useCallback(
+    (laneId: string) => {
+      const ex = excalidraw;
+      const lane = ex?.getSceneElements().find((e) => e.id === laneId);
+      if (ex && lane) placeCards(tidyMoves(ex.getSceneElements(), lane));
+    },
+    [excalidraw, placeCards],
+  );
+
+  // Drag a lone card over a lane's title band: the band lights up and an outline
+  // shows where the card will land; dropping it there puts it in the lane's
+  // column, below the lowest card. Alt (Excalidraw's duplicate-drag) opts out.
+  const dropTarget = useRef<DropHint | null>(null);
+  useEffect(() => {
+    const ex = excalidraw;
+    if (!ex || !laneDrop) return;
+    const show = (hint: DropHint | null) => {
+      const prev = dropTarget.current;
+      dropTarget.current = hint;
+      if (hint || prev) setDropHint(hint);
+    };
+    const onMove = (event: PointerEvent) => {
+      const appState = ex.getAppState() as AppState;
+      if (!(event.buttons & 1) || event.altKey || !appState.selectedElementsAreBeingDragged) return show(null);
+      const elements = ex.getSceneElements();
+      const card = draggedCard(elements, appState.selectedElementIds);
+      if (!card) return show(null);
+      const { x, y } = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
+      const lane = dropLaneAt(elements, x, y);
+      if (!lane) return show(null);
+      const slot = slotBelow(elements, lane, card.id);
+      show({
+        laneId: lane.id,
+        cardId: card.id,
+        zone: toViewport(dropZone(lane), appState),
+        slot: toViewport({ ...slot, width: card.width, height: card.height }, appState),
+      });
+    };
+    // Excalidraw calls this from inside its own pointerup handler; place the card
+    // once that has finished committing the drag.
+    const offUp = ex.onPointerUp((_tool, _state, event) => {
+      const hint = dropTarget.current;
+      show(null);
+      if (!hint || event.altKey) return;
+      setTimeout(() => {
+        const elements = ex.getSceneElements();
+        const lane = elements.find((e) => e.id === hint.laneId);
+        if (!lane || !elements.some((e) => e.id === hint.cardId)) return;
+        placeCards(new Map([[hint.cardId, slotBelow(elements, lane, hint.cardId)]]));
+      }, 0);
+    });
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      offUp();
+      show(null);
+    };
+  }, [excalidraw, laneDrop, placeCards]);
+
+  const toggleLaneDrop = useCallback(() => {
+    setLaneDrop((on) => {
+      writeLaneDrop(!on, settingsStore());
+      return !on;
+    });
+  }, []);
+
   const closeMenu = useCallback(() => setMenuFor(null), []);
   const onMenuAction = useCallback(
     (item: MenuItem) => {
       const ex = excalidraw;
-      const sessionId = menuFor;
+      const target = menuFor;
       setMenuFor(null);
-      if (!ex || !sessionId) return;
+      if (!ex || !target) return;
+      if (target.kind === "lane") {
+        if (item.action === "tidy") tidyLane(target.laneId);
+        return;
+      }
+      const { sessionId } = target;
       switch (item.action) {
         case "focus":
           void focusSession(ex, sessionId);
@@ -296,7 +426,7 @@ export function App() {
           break;
       }
     },
-    [excalidraw, menuFor, sessionFor],
+    [excalidraw, menuFor, sessionFor, tidyLane],
   );
   const menuHost = menuFor ? wrapper.current?.querySelector<HTMLElement>(".excalidraw") : null;
 
@@ -342,6 +472,15 @@ export function App() {
       >
         <MainMenu>
           <MainMenu.Item onSelect={addLanes}>Add starter lanes</MainMenu.Item>
+          <MainMenu.Item
+            onSelect={toggleLaneDrop}
+            icon={checkbox(laneDrop)}
+            role="menuitemcheckbox"
+            aria-checked={laneDrop}
+            title="Drop a card on a lane's title to stack it below the lane's cards"
+          >
+            Drop on lane title stacks cards
+          </MainMenu.Item>
           <MainMenu.Separator />
           <MainMenu.DefaultItems.LoadScene />
           <MainMenu.DefaultItems.SaveToActiveFile />
@@ -385,8 +524,57 @@ export function App() {
         </Sidebar>
       </Excalidraw>
       {menuFor && menuHost && (
-        <CardMenu host={menuHost} items={menuItems(menuFor, sessionFor(menuFor))} onAction={onMenuAction} onClose={closeMenu} />
+        <CardMenu
+          host={menuHost}
+          items={menuFor.kind === "card" ? menuItems(menuFor.sessionId, sessionFor(menuFor.sessionId)) : laneMenuItems()}
+          onAction={onMenuAction}
+          onClose={closeMenu}
+        />
       )}
+      {dropHint && <LaneDropHint hint={dropHint} />}
+    </div>
+  );
+}
+
+/** A square checkbox icon for a main-menu toggle, in Excalidraw's 20 px icon style. */
+function checkbox(on: boolean) {
+  return (
+    <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.25" aria-hidden="true">
+      <rect x="3.5" y="3.5" width="13" height="13" rx="2.5" />
+      {on && <path d="M6.5 10.2l2.4 2.4 4.6-5" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
+  );
+}
+
+/**
+ * Not a scene element: a temporary overlay (pointer-events: none) over the lane
+ * title band being hovered with a card, plus a dashed outline where the card will land.
+ */
+function LaneDropHint({ hint }: { hint: DropHint }) {
+  const box = (b: ViewBox) => ({ position: "fixed", left: b.left, top: b.top, width: b.width, height: b.height }) as const;
+  return (
+    <div className="excaliagent-lane-drop" aria-hidden="true" style={{ pointerEvents: "none", position: "fixed", inset: 0, zIndex: 2 }}>
+      <div
+        className="excaliagent-lane-drop-zone"
+        style={{
+          ...box(hint.zone),
+          boxSizing: "border-box",
+          borderRadius: 8,
+          border: "2px solid #4c6ef5",
+          background: "rgba(76, 110, 245, 0.18)",
+          boxShadow: "0 0 0 4px rgba(76, 110, 245, 0.12)",
+        }}
+      />
+      <div
+        className="excaliagent-lane-drop-slot"
+        style={{
+          ...box(hint.slot),
+          boxSizing: "border-box",
+          borderRadius: 8,
+          border: "2px dashed #4c6ef5",
+          background: "rgba(76, 110, 245, 0.06)",
+        }}
+      />
     </div>
   );
 }

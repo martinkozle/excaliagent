@@ -26,7 +26,8 @@ OpenCode) are a later adapter.
    prompt-cache warmth, PR link, and where it runs in herdr.
 3. One gesture jumps to the session; one gesture resumes a dormant one.
 4. Dormant sessions are first-class: they stay on the board without a pane.
-5. My layout and my notes are never modified by the app.
+5. My layout and my notes are never modified by the app on its own. Cards
+   move only when I ask, with a gesture aimed at that lane (S7).
 6. Zero setup: `npx excaliagent`, no hooks installed, no config file.
 
 ## Non-goals
@@ -59,7 +60,8 @@ OpenCode) are a later adapter.
 - A card is as tall as its title needs (one or two lines) and grows or shrinks
   when the title re-wraps, until I resize it myself; then its size is mine.
 - The app never changes position, size (beyond that card height), rotation,
-  grouping, frame membership, or any element it did not create.
+  grouping, frame membership, or any element it did not create. The only
+  exception is S7, and only as the direct result of my own gesture.
 
 ### S3. Jump to the session (done)
 
@@ -92,6 +94,21 @@ OpenCode) are a later adapter.
 ### S6. Publish (in progress)
 
 - Public GitHub repo, MIT, `npx excaliagent` from npm, README with privacy notes.
+
+### S7. Line cards up in a lane (done)
+
+Free placement stays the default: nothing snaps on its own.
+
+- While I drag a single card over a lane's title band, the band lights up and
+  an outline shows where the card will land. Dropping it there puts it in the
+  lane's column, below the lowest card already in the lane. A full lane is not
+  grown; the card goes below it. Dropping anywhere else leaves the card exactly
+  where I let go.
+- Right-click a lane → **Tidy cards** stacks the lane's cards in one column
+  under its title, in their current top-to-bottom order.
+- Both are a single undoable step. Lanes themselves are never moved or resized.
+- A main-menu toggle turns the drop zone off; the choice is remembered in this
+  browser.
 
 ## Success criteria
 

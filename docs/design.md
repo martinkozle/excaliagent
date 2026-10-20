@@ -291,8 +291,9 @@ re-fitted, so a late font load cannot leave clipped text.
   Excalidraw would (5 px bound-text padding, the canvas measurer). An untitled
   lane has no text element (Excalidraw drops empty bound text). Boards from
   before 0.3.0 keep their free titles above the boxes; the app never rewrites
-  lanes. Cards are only ever placed in the inbox; moving
-  them between lanes is the user's job.
+  lanes. Reconcile only ever places cards in the inbox; moving them between
+  lanes is the user's job, helped by the lane drop zone and "Tidy cards"
+  (below), which move cards only in direct response to the user's gesture.
 - **When they are created**: when reconcile needs an inbox and the board has
   neither an inbox nor any lane, it creates the whole template (inbox + lanes) in
   one go. If lanes exist but the inbox was deleted, only the inbox is recreated.
@@ -335,12 +336,17 @@ the same array.
   a taller one keeps its height.
 - App patches use `CaptureUpdateAction.NEVER`: undo only undoes the user's edits.
 
+Reconcile never moves a card. The only code that does is the lane drop zone
+and "Tidy cards" (Interactions), each the direct result of one user gesture
+on one lane, as one undoable edit; they change only x/y of card rects and
+their own group's parts, never lanes or anything the user drew.
+
 ### Interactions
 
 - **Double-click a card** (capture phase, so Excalidraw does not enter text
   editing): live → `POST /api/focus`; dormant → `POST /api/resume`; no herdr →
   copy `cd '<cwd>' && claude --resume <id>` and toast.
-- **Right-click a card**: Excalidraw 0.18 hardcodes its context menu (no API),
+- **Right-click a card** (or a lane, below): Excalidraw 0.18 hardcodes its context menu (no API),
   and injecting into its React-managed DOM breaks on re-render. So
   `src/web/CardMenu.tsx` renders its own panel, portalled into the `.excalidraw`
   root (dark mode variables) and placed beside Excalidraw's
@@ -364,6 +370,36 @@ the same array.
   lane"; the same kind of undoable edit, then scrolled into view.
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
+- **Lane drop zone** (`src/web/lanes.ts`: `dropZone`, `dropLaneAt`,
+  `slotBelow`, `draggedCard`; wiring in `App.tsx`): a lane's drop zone is its
+  title band, the full lane width × `AREA_HEADER` (56) from its top edge, i.e.
+  where its title sits. Chosen over the whole lane so free placement inside a
+  lane keeps working, and over a small button so it needs no extra element.
+  The hit test uses the pointer, not the card. While Excalidraw reports
+  `selectedElementsAreBeingDragged`, the selection is exactly one card (its
+  rect plus its own parts; any other selected element opts out) and the
+  pointer is in a zone, a temporary overlay (a `position: fixed`,
+  `pointer-events: none` div placed with `sceneCoordsToViewportCoords`, never a
+  scene element) tints the band and outlines the target slot. On drop
+  (Excalidraw's `onPointerUp` API, then a `setTimeout(0)` so Excalidraw has
+  committed its drag first), the card group moves to `slotBelow`: x = lane x +
+  `GAP`, y = below the lowest other card whose centre is inside the lane
+  (+`GAP`), or right under the header. Lanes are never grown. One edit with
+  `CaptureUpdateAction.IMMEDIATELY`: undo puts the card back where it was
+  dropped. Alt held (Excalidraw's duplicate-drag) opts out.
+- **No modifier key** for "stack anywhere over a lane": in Excalidraw 0.18.1
+  every modifier already means something during a drag. Shift locks the axis,
+  Alt duplicates, Ctrl/Cmd toggles object snapping (and at pointer-down starts a
+  box selection instead of a drag); Meta/Super is the window manager's on
+  Linux (Hyprland, Sway). Checked in `dist/dev/index.js` of 0.18.1.
+- **Tidy cards** (right-click inside a lane, not on a card: our menu section
+  then holds this one item): `tidyMoves` stacks the cards whose centre is in
+  the lane in one column under the header, sorted by y (then x), `GAP` apart,
+  each at its own height. One undoable edit, as above.
+- **Setting**: main menu → "Drop on lane title stacks cards" (a checkbox item,
+  on by default) turns the drop zone off. Stored per browser in `localStorage`
+  (`excaliagent.laneDrop` = `on`/`off`); every access is wrapped in try/catch,
+  and unreadable storage means on. "Tidy cards" is always available.
 
 ### Saving
 

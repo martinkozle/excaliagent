@@ -8,7 +8,8 @@ Every session is a card. You drag cards wherever they make sense to you (parked,
 blocked on a colleague, come back to, done) and draw anything around them. The
 app keeps each card's **color and label** in sync with the session (and its
 height fitted to a one- or two-line title, until you resize the card yourself)
-and never moves, resizes, or edits anything else.
+and never moves, resizes, or edits anything else on its own; cards move only
+when you drop one on a lane title or ask a lane to tidy up.
 
 ```
 Fix flaky checkout test       ✳   ← title (handwritten, larger), harness logo
@@ -46,6 +47,12 @@ bookmark. Running it again while a board is up just opens that board.
   rename (double-click) or delete. **+ Lane** (top right) adds one more at the
   right end. On an older
   board, add the whole set from the main menu: *Add starter lanes*.
+- **Line cards up in a lane**: drag a card onto a lane's title (the band
+  lights up) and it drops into the lane's column, below the lowest card there.
+  Dropped anywhere else, a card stays exactly where you put it. Right-click a
+  lane → *Tidy cards* stacks its cards in one column, top to bottom. Both undo
+  with Ctrl+Z. Turn the title drop off in the main menu (*Drop on lane title
+  stacks cards*).
 - **Dormant sessions** are added from the **Sessions** panel (top right).
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
