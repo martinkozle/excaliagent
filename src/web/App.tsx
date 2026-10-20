@@ -27,7 +27,7 @@ import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
 import { appendLanes } from "./lanes.ts";
 
-// Serve Excalidraw's fonts from our own server, never a CDN.
+// Serve Excalidraw's local fonts from our own server; missing fonts (Xiaolai CJK) fall back to CDN.
 (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH = "/";
 
 const PICKER = "excaliagent-picker";

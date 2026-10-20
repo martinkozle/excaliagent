@@ -4,7 +4,9 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 // Excalidraw loads fonts from a CDN unless EXCALIDRAW_ASSET_PATH points at a
-// local copy. We ship all of them so the board also works offline.
+// local copy. We ship all fonts except Xiaolai (CJK, ~13 MB) so the board works
+// offline for Latin text while keeping the npm package light; Xiaolai falls back
+// to Excalidraw's default CDN.
 const fontsDir = join(import.meta.dirname, "node_modules/@excalidraw/excalidraw/dist/prod/fonts");
 
 function excalidrawFonts(): Plugin {
@@ -17,13 +19,16 @@ function excalidrawFonts(): Plugin {
     configureServer(server) {
       server.middlewares.use("/fonts", (req, res, next) => {
         const file = normalize(join(fontsDir, decodeURIComponent((req.url ?? "/").split("?")[0]!)));
-        if (!file.startsWith(fontsDir + sep) || !existsSync(file) || !statSync(file).isFile()) return next();
+        if (!file.startsWith(fontsDir + sep) || file.includes("Xiaolai") || !existsSync(file) || !statSync(file).isFile()) return next();
         res.setHeader("content-type", "font/woff2");
         createReadStream(file).pipe(res);
       });
     },
     closeBundle() {
-      cpSync(fontsDir, join(outDir, "fonts"), { recursive: true });
+      cpSync(fontsDir, join(outDir, "fonts"), {
+        recursive: true,
+        filter: (src) => !src.includes("Xiaolai"),
+      });
     },
   };
 }
