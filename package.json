@@ -1,6 +1,6 @@
 {
   "name": "excaliagent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A 2D Excalidraw board for your coding agents: every session is a card you place",
   "type": "module",
   "license": "MIT",
