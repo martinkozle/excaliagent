@@ -7,6 +7,7 @@ import type { Session } from "../shared/types.ts";
 import type { Hub } from "./hub.ts";
 import { createAppServer, type AppServer } from "./http.ts";
 import { createSceneStore } from "./scene-store.ts";
+import { createCharacterStore } from "./characters.ts";
 
 const TOKEN = "t0ken-abc";
 const RESUMABLE = "0b6f3c1e-1111-4a2b-9c3d-123456789abc";
@@ -63,7 +64,7 @@ function raw(path: string, headers: Record<string, string>): Promise<{ status: n
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "excaliagent-http-"));
   hub = fakeHub();
-  server = createAppServer({ hub, scenes: createSceneStore(dir), token: TOKEN, webRoot });
+  server = createAppServer({ hub, scenes: createSceneStore(dir), characters: createCharacterStore(dir), token: TOKEN, webRoot });
   await server.listen(0);
   base = `http://127.0.0.1:${server.port}`;
   cookie = `excaliagent_token_${server.port}=${TOKEN}`;
@@ -271,5 +272,133 @@ describe("api", () => {
     hub.emit([session(), session({ id: "s2" })]);
     expect((await nextEvent()).map((s) => s.id)).toEqual(["s1", "s2"]);
     ctrl.abort();
+  });
+});
+
+describe("characters and packs api", () => {
+  const SID = "11111111-0000-4000-8000-000000000001";
+  const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const get = (path: string) => fetch(`${base}${path}`, { headers: { cookie } });
+  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json", origin: base, ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("GET /api/characters lists the built-in packs and the state", async () => {
+    const d = await (await get("/api/characters")).json();
+    expect(d.activePack).toBe("@animals");
+    expect(d.packs[0]).toMatchObject({ id: "@animals", builtIn: true });
+  });
+
+  it("assign, override and active pack round-trip; bad input is a 400", async () => {
+    expect((await post("/api/characters/assign", { pack: "@animals", assign: { [SID]: "🐱" } })).status).toBe(200);
+    expect((await post("/api/characters/override", { sessionId: SID, character: { pack: "@sea", id: "🐙" } })).status).toBe(200);
+    const d = await (await post("/api/characters/active", { pack: "@sea" })).json();
+    expect(d).toMatchObject({ activePack: "@sea", assigned: { "@animals": { [SID]: "🐱" } }, overrides: { [SID]: { pack: "@sea", id: "🐙" } } });
+    expect((await (await post("/api/characters/override", { sessionId: SID, character: null })).json()).overrides).toEqual({});
+    for (const [path, body] of [
+      ["/api/characters/assign", { pack: "../x", assign: { [SID]: "🐱" } }],
+      ["/api/characters/assign", { pack: "@animals", assign: "x" }],
+      ["/api/characters/override", { sessionId: "s1", character: null }],
+      ["/api/characters/override", { sessionId: SID, character: { pack: "@sea", id: "nope" } }],
+      ["/api/characters/active", { pack: "../../" }],
+    ] as const)
+      expect((await post(path, body)).status, path).toBe(400);
+  });
+
+  it("a custom pack: create, add an image and an emoji, serve the image, rename, delete", async () => {
+    expect((await post("/api/packs", { name: "mobs" })).status).toBe(200);
+    expect((await post("/api/packs/emoji", { pack: "mobs", emoji: "🧟" })).status).toBe(200);
+    const d = await (await post("/api/packs/image", { pack: "mobs", name: "creeper.png", dataURL: `data:image/png;base64,${PNG_B64}` })).json();
+    const img = d.packs.find((p: { id: string }) => p.id === "mobs").characters[1];
+    expect(img).toMatchObject({ id: "creeper.png", kind: "image" });
+    expect(img.url).toMatch(/^\/api\/packs\/mobs\/creeper\.png\?v=[0-9a-f]{24}$/);
+    const res = await get(img.url);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    // The url names the content, so it may be cached for good; any other url may not.
+    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    for (const url of ["/api/packs/mobs/creeper.png", "/api/packs/mobs/creeper.png?v=0000"])
+      expect((await get(url)).headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("content-security-policy")).toContain("sandbox");
+    expect(Buffer.from(await res.arrayBuffer()).toString("base64")).toBe(PNG_B64);
+    expect((await post("/api/packs/remove", { pack: "mobs", id: "🧟" })).status).toBe(200);
+    expect((await post("/api/packs/rename", { pack: "mobs", name: "zoo" })).status).toBe(200);
+    expect((await get("/api/packs/zoo/creeper.png")).status).toBe(200);
+    expect((await get("/api/packs/ZOO/creeper.png")).status).toBe(404);
+    expect((await post("/api/packs/delete", { pack: "zoo" })).status).toBe(200);
+    expect((await get("/api/packs/zoo/creeper.png")).status).toBe(404);
+  });
+
+  it("refuses bad names, foreign images, built-in edits, and duplicates with the right status", async () => {
+    expect((await post("/api/packs", { name: "../evil" })).status).toBe(400);
+    expect((await post("/api/packs", { name: "ok" })).status).toBe(200);
+    expect((await post("/api/packs", { name: "ok" })).status).toBe(409);
+    expect((await post("/api/packs/image", { pack: "ok", name: "x", dataURL: "data:text/html;base64,PGI+" })).status).toBe(400);
+    expect((await post("/api/packs/emoji", { pack: "@animals", emoji: "🧟" })).status).toBe(403);
+    expect((await post("/api/packs/emoji", { pack: "missing", emoji: "🧟" })).status).toBe(404);
+  });
+
+  it("image paths cannot traverse out of the pack", async () => {
+    await post("/api/packs", { name: "p" });
+    const host = `127.0.0.1:${server.port}`;
+    for (const path of [
+      "/api/packs/p/..%2F..%2Ftoken",
+      "/api/packs/..%2F/token",
+      "/api/packs/p/../../token",
+      "/api/packs/p/%2e%2e",
+      "/api/packs/p",
+      "/api/packs/p/a/b.png",
+    ])
+      expect((await raw(path, { cookie, host })).status, path).toBe(404);
+    expect((await raw("/api/packs/p/%E0%A4%A", { cookie, host })).status).toBe(400);
+  });
+
+  it("every character route needs the cookie, same-origin writes and JSON", async () => {
+    expect((await fetch(`${base}/api/characters`)).status).toBe(401);
+    expect((await fetch(`${base}/api/packs/p/x.png`)).status).toBe(401);
+    const routes = [
+      "/api/characters/assign",
+      "/api/characters/override",
+      "/api/characters/active",
+      "/api/packs",
+      "/api/packs/rename",
+      "/api/packs/delete",
+      "/api/packs/emoji",
+      "/api/packs/image",
+      "/api/packs/remove",
+    ];
+    for (const r of routes) {
+      expect((await post(r, { name: "evil" }, { origin: "https://evil.example" })).status, r).toBe(403);
+      const anon = await fetch(`${base}${r}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      expect(anon.status, r).toBe(401);
+      const form = await fetch(`${base}${r}`, { method: "POST", headers: { cookie, "content-type": "text/plain" }, body: "{}" });
+      expect(form.status, r).toBe(415);
+    }
+    expect((await (await get("/api/characters")).json()).packs.map((p: { id: string }) => p.id)).not.toContain("evil");
+  });
+});
+
+describe("body limits", () => {
+  const big = (n: number) => "x".repeat(n);
+  const post = (path: string, body: string) =>
+    fetch(`${base}${path}`, { method: "POST", headers: { cookie, "content-type": "application/json", origin: base }, body });
+
+  it("character and pack routes refuse bodies over 64 KB, by content-length, before reading them", async () => {
+    for (const r of ["/api/characters/assign", "/api/characters/override", "/api/characters/active", "/api/packs", "/api/packs/emoji", "/api/packs/remove"])
+      expect((await post(r, JSON.stringify({ pad: big(70 * 1024) }))).status, r).toBe(413);
+    // Under the limit: reaches validation.
+    expect((await post("/api/packs", JSON.stringify({ name: "../x", pad: big(1000) }))).status).toBe(400);
+  });
+
+  it("image uploads may be up to about 1.5 MB", async () => {
+    await post("/api/packs", JSON.stringify({ name: "p" }));
+    const ok = await post("/api/packs/image", JSON.stringify({ pack: "p", name: "x", dataURL: `data:image/png;base64,${big(1_300_000)}` }));
+    expect(ok.status).toBe(400); // read and validated (not a PNG), not refused for size
+    const tooBig = await post("/api/packs/image", JSON.stringify({ pack: "p", name: "x", dataURL: big(1_600_000) }));
+    expect(tooBig.status).toBe(413);
   });
 });

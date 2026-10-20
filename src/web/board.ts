@@ -59,7 +59,8 @@ export type MenuItem =
   | { action: "copy"; label: string; text: string }
   | { action: "open"; label: string; url: string }
   | { action: "end"; label: string }
-  | { action: "tidy"; label: string };
+  | { action: "tidy"; label: string }
+  | { action: "character"; label: string };
 
 /** Our lane section of the right-click menu. */
 export function laneMenuItems(): MenuItem[] {
@@ -100,6 +101,7 @@ export function menuItems(sessionId: string, s: Session | undefined): MenuItem[]
     const short = shortPr(url);
     items.push({ action: "open", label: /^(PR|MR) /.test(short) ? `Open ${short}` : "Open PR", url });
   }
+  items.push({ action: "character", label: "Change character…" });
   if (s && !isDormant(s)) items.push({ action: "end", label: "Stop session…" });
   return items;
 }
@@ -150,15 +152,15 @@ export function imageFileIds(elements: readonly ExcalidrawElement[]): string[] {
   return [...ids];
 }
 
-/** Image data the board shows that the server has not stored yet; built-in files (logos) never go up. */
+/** Image data the board shows that the server has not stored yet; the app's own files (logos, characters) never go up. */
 export function filesToUpload(
   elements: readonly ExcalidrawElement[],
   files: BinaryFiles,
   stored: ReadonlySet<string>,
-  builtIn: ReadonlySet<string>,
+  isAppFile: (id: string) => boolean,
 ): BinaryFileData[] {
   return imageFileIds(elements)
-    .filter((id) => !stored.has(id) && !builtIn.has(id))
+    .filter((id) => !stored.has(id) && !isAppFile(id))
     .map((id) => files[id])
     .filter((f): f is BinaryFileData => f !== undefined);
 }

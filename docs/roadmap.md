@@ -25,7 +25,6 @@ details. When something gets built, close its issue and describe it in
 | [#14 Switch to the terminal tab that holds herdr](https://github.com/martinkozle/excaliagent/issues/14) | desktop |
 | [#6 Remote machines via herdr --machine](https://github.com/martinkozle/excaliagent/issues/6) | sources, herdr |
 | [#7 Arrows between related sessions](https://github.com/martinkozle/excaliagent/issues/7) | board |
-| [#12 A character per session (packs)](https://github.com/martinkozle/excaliagent/issues/12) | board |
 | [#13 Hand-gesture control via the webcam](https://github.com/martinkozle/excaliagent/issues/13) | board, experimental |
 
 ## Releasing
@@ -56,5 +55,11 @@ One-time setup:
   cards stay. Merge them?
 - **Stored images are never deleted**: `files/` keeps the data of images
   removed from the board. Prune unreferenced files on startup?
+- **Characters never forgotten**: `characters.json` remembers every
+  session's pick per pack, including sessions long gone (a few dozen bytes
+  each). Prune entries of sessions without a card or transcript?
+- **Character packs for others**: built-in packs are emoji only. A freely
+  licensed image pack (OpenMoji CC BY-SA 4.0, Twemoji CC BY 4.0, with
+  attribution) would render the same on every system.
 - **Label churn**: ages and cache minutes change every minute, so active cards
   are patched (and the scene saved) about once a minute. Acceptable so far.

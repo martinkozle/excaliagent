@@ -8,6 +8,7 @@ import { createAppServer, type Middleware } from "./http.ts";
 import { createDesktop } from "./desktop/desktop.ts";
 import { createHerdrLink, createNoPaneLink } from "./panes/herdr.ts";
 import { createSceneStore, defaultStateDir } from "./scene-store.ts";
+import { createCharacterStore } from "./characters.ts";
 import { createClaudeSource } from "./sources/claude.ts";
 import { loadOrCreateToken } from "./token.ts";
 import { clearRunning, findRunning, recordRunning } from "./instance.ts";
@@ -53,6 +54,7 @@ async function main(args: CliArgs) {
   const server = createAppServer({
     hub,
     scenes,
+    characters: createCharacterStore(stateDir),
     token,
     webRoot: join(root, "dist", "web"),
     get middleware() {

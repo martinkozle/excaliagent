@@ -1,5 +1,6 @@
 import type { BinaryFileData } from "@excalidraw/excalidraw/types";
 import type { Session } from "../shared/types.ts";
+import type { CharacterRef, CharactersData } from "../shared/packs.ts";
 
 export type ResumeResult = "ok" | "no herdr" | "live" | "unknown";
 
@@ -18,6 +19,16 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
   headers: { "content-type": "application/json" },
   body: JSON.stringify(body),
 });
+
+/** A character/pack mutation: the new state, or an Error carrying the server's reason. */
+async function post(path: string, body: unknown): Promise<CharactersData> {
+  const res = await fetch(path, jsonInit("POST", body));
+  if (!res.ok) {
+    const reason = ((await res.json().catch(() => ({}))) as { error?: string }).error;
+    throw new Error(reason ?? `${res.status}`);
+  }
+  return res.json();
+}
 
 export const api = {
   loadScene: async (): Promise<SavedScene> => (await ok(await fetch("/api/scene"))).json(),
@@ -63,6 +74,20 @@ export const api = {
     await ok(res);
     return "ok";
   },
+  /** Packs, the active pack, remembered assignments and overrides. */
+  characters: async (): Promise<CharactersData> => (await ok(await fetch("/api/characters"))).json(),
+  /** Remember automatic picks in `pack`. */
+  assignCharacters: (pack: string, assign: Record<string, string>) => post("/api/characters/assign", { pack, assign }),
+  /** Pin a session's character; null = back to automatic. */
+  overrideCharacter: (sessionId: string, character: CharacterRef | null) =>
+    post("/api/characters/override", { sessionId, character }),
+  setActivePack: (pack: string) => post("/api/characters/active", { pack }),
+  createPack: (name: string, from?: string) => post("/api/packs", { name, from }),
+  renamePack: (pack: string, name: string) => post("/api/packs/rename", { pack, name }),
+  deletePack: (pack: string) => post("/api/packs/delete", { pack }),
+  addEmoji: (pack: string, emoji: string) => post("/api/packs/emoji", { pack, emoji }),
+  addImage: (pack: string, name: string, dataURL: string) => post("/api/packs/image", { pack, name, dataURL }),
+  removeCharacter: (pack: string, id: string) => post("/api/packs/remove", { pack, id }),
   /** Live session stream. EventSource reconnects by itself. */
   subscribe(onSessions: (s: Session[]) => void, onStatus?: (connected: boolean) => void): () => void {
     const es = new EventSource("/api/events");

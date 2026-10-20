@@ -110,7 +110,21 @@ try {
   await page.mouse.click(point.x, point.y, { button: "right" });
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(out, "card-menu.png") });
-  console.log(`wrote ${join(out, "board.png")} and card-menu.png`);
+
+  // The Characters panel beside the cards it draws on.
+  await page.keyboard.press("Escape");
+  await page.mouse.click(5, 500);
+  await page.setViewportSize({ width: 1600, height: 820 });
+  await page.evaluate((id) => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const rect = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === id);
+    const zoom = 1.1;
+    excalidraw.updateScene({ appState: { selectedElementIds: {}, zoom: { value: zoom }, scrollX: -rect.x + 40 / zoom, scrollY: -rect.y + 120 / zoom } });
+  }, ID.grill);
+  await page.getByTitle("Character packs for the cards").click();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: join(out, "characters.png") });
+  console.log(`wrote ${join(out, "board.png")}, card-menu.png and characters.png`);
 } finally {
   await browser.close();
   board.stop();

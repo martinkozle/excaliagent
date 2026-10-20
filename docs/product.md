@@ -95,7 +95,26 @@ OpenCode) are a later adapter.
   window they shrink to icons with tooltips, and below that move into a
   column at the right edge; their labels never overlap.
 
-### S6. Publish (in progress)
+### S6. A character per session (done)
+
+- Every card shows a character (an emoji, or an image from my own pack) left
+  of its title, so I remember which agent is which at a glance. It does not
+  make the card taller or squeeze the details.
+- Characters on the board are distinct while the pack has enough of them; a
+  session keeps its character when its card is deleted and comes back, when
+  other cards leave, and across restarts.
+- Right-click → *Change character…* picks any character from any pack, or
+  Shuffle, Reset to automatic, or None. A character I delete from a card stays
+  deleted; the app never moves a title I placed myself.
+- The Characters panel chooses the active pack (built-in: Animals, Cats &
+  friends, Sea, Fantasy, Food) and makes custom packs: type or paste emoji,
+  paste, drop or upload images, remove characters, rename, delete, or
+  duplicate a built-in pack to edit it. Switching packs and back restores each
+  session's character in that pack.
+- A custom pack is a plain folder in the state dir; files I drop there by hand
+  work too. A broken pack only breaks itself.
+
+### S7. Publish (in progress)
 
 - Public GitHub repo, MIT, `npx excaliagent` from npm, README with privacy notes.
 

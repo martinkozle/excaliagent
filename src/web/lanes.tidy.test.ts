@@ -22,7 +22,7 @@ import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
 const gen = testGen();
 const lanes = makeLanes(gen, NOW, { x: 1000, y: 100 }, 1600).filter((e) => e.type === "rectangle");
 const [todo, doing] = lanes as [ExcalidrawElement, ExcalidrawElement];
-const card = (id: string, x: number, y: number) => makeCard(session({ id }), { x, y }, gen, NOW) as ExcalidrawElement[];
+const card = (id: string, x: number, y: number) => makeCard(session({ id, title: "Short" }), { x, y }, gen, NOW) as ExcalidrawElement[];
 const rectOf = (els: readonly ExcalidrawElement[], id: string) =>
   els.find((e) => e.type === "rectangle" && e.customData?.excaliagent?.sessionId === id)!;
 /** The card with its rect changed. */

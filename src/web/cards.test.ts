@@ -25,6 +25,10 @@ import {
   TITLE_W,
   LOGO_SIZE,
   makeCardLogo,
+  makeCardCharacter,
+  AVATAR_SIZE,
+  TITLE_X,
+  TEXT_W,
 } from "./cards.ts";
 import { DAY, HOUR, MIN, NOW, session, testGen } from "./__fixtures__/helpers.ts";
 import { LOGOS } from "./logos.ts";
@@ -61,23 +65,23 @@ describe("formatAge", () => {
   ])("%d ms → %s", (ms, out) => expect(formatAge(ms)).toBe(out));
 });
 
-/** Monospace test measurer: 10px per char regardless of font → 27 chars per 272px line. */
+/** Monospace test measurer: 10px per char regardless of font → 20 title chars per 204px line, 27 details chars. */
 const mono: Measure = (t) => t.length * 10;
 
 describe("titleText", () => {
   it("title, then name, then repo", () => {
-    expect(titleText(session())).toBe("ExcaliClaude handoff");
+    expect(titleText(session()).replace("\n", " ")).toBe("ExcaliClaude handoff");
     expect(titleText(session({ title: undefined }))).toBe("excaliagent-64");
     expect(titleText(session({ title: "", name: undefined }))).toBe("excaliagent");
   });
 
   it("fits on one line when short enough", () => {
-    expect(titleText(session({ title: "Fix flaky checkout test" }), mono)).toBe("Fix flaky checkout test");
+    expect(titleText(session({ title: "Fix flaky checkout" }), mono)).toBe("Fix flaky checkout");
   });
 
   it("word-wraps to a second line", () => {
-    expect(titleText(session({ title: "Node.js first slices setup on NixOS" }), mono)).toBe(
-      "Node.js first slices\nsetup on NixOS",
+    expect(titleText(session({ title: "Node.js first slices on NixOS" }), mono)).toBe(
+      "Node.js first slices\non NixOS",
     );
   });
 
@@ -85,15 +89,16 @@ describe("titleText", () => {
     const t = titleText(session({ title: "one two three four five six seven eight nine ten eleven twelve thirteen" }), mono);
     const [l1, l2, l3] = t.split("\n");
     expect(l3).toBeUndefined();
-    expect(l1).toBe("one two three four five");
+    expect(l1).toBe("one two three four");
     expect(l2!.endsWith("…")).toBe(true);
     expect(mono(l2!, 5, 20)).toBeLessThanOrEqual(TITLE_W);
-    expect(l2!.startsWith("six seven")).toBe(true);
+    expect(l2!.startsWith("five six")).toBe(true);
   });
 
-  it("breaks a long single word by characters (24 chars fit beside the logo)", () => {
-    expect(titleText(session({ title: "x".repeat(40) }), mono)).toBe(`${"x".repeat(24)}\n${"x".repeat(16)}`);
-    expect(titleText(session({ title: `ab ${"y".repeat(30)}` }), mono)).toBe(`ab\n${"y".repeat(23)}…`);
+  it("breaks a long single word by characters (20 chars fit between the character and the logo)", () => {
+    expect(titleText(session({ title: "x".repeat(30) }), mono)).toBe(`${"x".repeat(20)}\n${"x".repeat(10)}`);
+    expect(titleText(session({ title: "x".repeat(45) }), mono)).toBe(`${"x".repeat(20)}\n${"x".repeat(19)}…`);
+    expect(titleText(session({ title: `ab ${"y".repeat(30)}` }), mono)).toBe(`ab\n${"y".repeat(19)}…`);
   });
 
   it("collapses whitespace and newlines", () => {
@@ -121,7 +126,7 @@ describe("measurer injection", () => {
   it("details are truncated by measured width", () => {
     const wide: Measure = (t) => t.length * 20; // 13 chars per line
     const lines = detailsText(session(), NOW, wide).split("\n");
-    for (const l of lines) expect(wide(l, 6, 14)).toBeLessThanOrEqual(INNER_W);
+    for (const l of lines) expect(wide(l, 6, 14)).toBeLessThanOrEqual(TEXT_W);
     expect(lines[0]).toBe("excaliagent…");
   });
 });
@@ -186,7 +191,7 @@ describe("detailsText", () => {
 
 describe("makeCard", () => {
   it("builds rect + title + details sharing one fresh group", () => {
-    const s = session({ prLinks: ["https://github.com/a/b/pull/1"] });
+    const s = session({ title: "Handoff", prLinks: ["https://github.com/a/b/pull/1"] });
     const [rect, title, details] = makeCard(s, { x: 60, y: 100 }, testGen(), NOW);
     expect(rect).toMatchObject({
       type: "rectangle",
@@ -213,7 +218,7 @@ describe("makeCard", () => {
       fontSize: 20,
       fontFamily: 5,
       strokeColor: "#1e1e1e",
-      x: 60 + PAD,
+      x: 60 + TITLE_X,
       y: 100 + PAD,
       autoResize: true,
       customData: { excaliagent: { kind: "card-title", sessionId: "s1", cardId: rect.id } },
@@ -319,5 +324,51 @@ describe("harness logo", () => {
     const t = titleText(session({ title: "x".repeat(25) }), m); // 250px: fits INNER_W, not TITLE_W
     expect(INNER_W).toBeGreaterThanOrEqual(250);
     expect(t.split("\n")).toHaveLength(2);
+  });
+});
+
+describe("character", () => {
+  it("makeCard adds the session's character top-left, in the card's group; the title sits right of it, details full width below", () => {
+    const els = makeCard(session(), { x: 60, y: 100 }, testGen(), NOW, undefined, "excaliagent-emoji-1f431");
+    const [rect, title, details] = els;
+    const character = els.find((e) => e.customData?.excaliagent?.kind === "card-character")!;
+    expect(character).toMatchObject({
+      type: "image",
+      fileId: "excaliagent-emoji-1f431",
+      status: "saved",
+      x: 60 + PAD,
+      y: 100 + PAD,
+      width: AVATAR_SIZE,
+      height: AVATAR_SIZE,
+      groupIds: rect.groupIds,
+      customData: { excaliagent: { kind: "card-character", sessionId: "s1", cardId: rect.id } },
+    });
+    expect(title.x).toBeGreaterThan(character.x + character.width);
+    expect(details.x).toBe(rect.x + PAD);
+    expect(details.x + TEXT_W).toBe(rect.x + CARD_W - PAD);
+    expect(rect.customData!.excaliagent.charLayout).toBe(1);
+  });
+
+  it("the character ends above the details for one- and two-line titles", () => {
+    for (const title of ["Short", "A rather long title that certainly wraps onto a second line"]) {
+      const els = makeCard(session({ title }), { x: 0, y: 0 }, testGen(), NOW, undefined, "excaliagent-emoji-1f431");
+      const details = els[2];
+      const character = els.find((e) => e.customData?.excaliagent?.kind === "card-character")!;
+      expect(character.y + character.height).toBeLessThan(details.y);
+    }
+  });
+
+  it("a card made without a character file id is not marked as laid out for one", () => {
+    expect(makeCard(session(), { x: 0, y: 0 }, testGen(), NOW)[0].customData!.excaliagent.charLayout).toBeUndefined();
+  });
+
+  it("makeCard without a character file id has no character", () => {
+    const els = makeCard(session(), { x: 0, y: 0 }, testGen(), NOW);
+    expect(els.some((e) => e.customData?.excaliagent?.kind === "card-character")).toBe(false);
+  });
+
+  it("makeCardCharacter places it at the rect's current top-left", () => {
+    const c = makeCardCharacter({ id: "r", x: 10, y: 20, groupIds: ["g"] }, "s1", "excaliagent-emoji-1f436", testGen(), NOW);
+    expect(c).toMatchObject({ x: 10 + PAD, y: 20 + PAD, groupIds: ["g"], fileId: "excaliagent-emoji-1f436" });
   });
 });

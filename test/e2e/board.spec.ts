@@ -91,7 +91,7 @@ test("live sessions spawn as colored cards in the inbox; dormant ones do not", a
   expect(card(ID.idleWarm)?.backgroundColor).toBe(GREEN);
   expect(card(ID.idleCold)?.backgroundColor).toBe(GREY);
   expect(card(ID.dormantA)).toBeUndefined();
-  expect(card(ID.needsUser)?.label).toContain("Fix flaky checkout test");
+  expect(card(ID.needsUser)?.label).toContain("Fix flaky checkout");
   expect(card(ID.needsUser)?.label).toContain("demo-app · fix/flaky");
   expect(card(ID.needsUser)?.label).toContain("input needed");
   expect(card(ID.needsUser)?.label).toContain("PR #12");
@@ -148,7 +148,7 @@ test("cards fit their title: one-line titles get short cards, a long title a tal
   board.mock.setTitle(ID.busy, longer);
   await expect.poll(() => card(ID.busy)?.height).toBe(tall.height);
   expect(card(ID.busy)).toMatchObject({ x: short.x, y: short.y, appHeight: tall.height });
-  await expect.poll(() => card(ID.idleCold)?.label).toContain("Bump every dependency");
+  await expect.poll(() => card(ID.idleCold)?.label).toContain("Bump every");
   expect(card(ID.idleCold)?.height).toBe(300);
   await page.screenshot({ path: "test-results/board-fit-title.png" });
 });
@@ -315,7 +315,13 @@ test("right-clicking a card adds our section beside Excalidraw's menu", async ({
   const ours = page.locator(".excaliagent-menu");
   await expect(theirs).toBeVisible();
   await expect(ours).toBeVisible();
-  await expect(ours.getByRole("menuitem")).toHaveText(["Copy resume command", "Copy resume command with cd", "Open PR #12", "Stop session…"]);
+  await expect(ours.getByRole("menuitem")).toHaveText([
+    "Copy resume command",
+    "Copy resume command with cd",
+    "Open PR #12",
+    "Change character…",
+    "Stop session…",
+  ]);
   await expectBeside(page);
   await page.screenshot({ path: "test-results/board-card-menu.png" });
 
@@ -570,7 +576,8 @@ test.describe("lining cards up in a lane", () => {
     await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + busy.height + 20 });
     // The card's texts came along.
     const parts = board.savedElements().filter((e) => e.customData?.excaliagent?.cardId === card(ID.needsUser)!.id);
-    expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 14 });
+    expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 54 }); // TITLE_X
+    expect(parts.find((e) => e.customData.excaliagent.kind === "card-character")).toMatchObject({ x: lane.x + 20 + 14 });
     // Lanes are never resized or moved.
     expect(todo()).toMatchObject({ x: lane.x, y: lane.y, width: lane.width, height: lane.height });
 

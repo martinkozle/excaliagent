@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ExcalidrawElement, ExcalidrawImageElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
 import { reconcile } from "./reconcile.ts";
-import { AREA_HEADER, CARD_H, CARD_W, cardHeight, LOGO_SIZE, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
+import { AREA_HEADER, CARD_H, CARD_W, cardHeight, LOGO_SIZE, PAD, TITLE_X, AVATAR_SIZE, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
 import { LOGOS } from "./logos.ts";
 import { DAY, NOW, session, testGen } from "./__fixtures__/helpers.ts";
 import userDrawingsJson from "./__fixtures__/user-drawings.json" with { type: "json" };
@@ -16,7 +16,7 @@ const live = (els: readonly ExcalidrawElement[]) => els.filter((e) => !e.isDelet
 const cardsOf = (els: readonly ExcalidrawElement[], sessionId?: string) =>
   live(els).filter((e) => kind(e) === "card" && (!sessionId || e.customData!.excaliagent.sessionId === sessionId));
 const inboxOf = (els: readonly ExcalidrawElement[]) => live(els).find((e) => kind(e) === "inbox");
-const partOf = (els: readonly ExcalidrawElement[], rect: ExcalidrawElement, k: "card-title" | "card-details" | "card-logo") => {
+const partOf = (els: readonly ExcalidrawElement[], rect: ExcalidrawElement, k: "card-title" | "card-details" | "card-logo" | "card-character") => {
   const found = live(els).filter((e) => kind(e) === k && e.customData!.excaliagent.cardId === rect.id);
   expect(found).toHaveLength(1);
   return found[0] as ExcalidrawTextElement;
@@ -118,7 +118,7 @@ describe("reconcile", () => {
     const details = partOf(b.elements, card, "card-details");
     expect(title.text.split("\n")).toHaveLength(2);
     expect(title.height).toBe(2 * TITLE_H);
-    expect([title.x, title.y]).toEqual([card.x + PAD, card.y + PAD]);
+    expect([title.x, title.y]).toEqual([card.x + TITLE_X, card.y + PAD]);
     expect([details.x, details.y]).toEqual([card.x + PAD, card.y + PAD + 2 * TITLE_H + TITLE_GAP]);
     expect(reconcile([long], b.elements, NOW, gen, { measure: mono }).changed).toBe(false);
 
@@ -281,7 +281,7 @@ describe("reconcile", () => {
     const r = reconcile([session()], deleted, NOW, gen);
     const title = partOf(r.elements, card, "card-title");
     expect(title.id).not.toBe(titleId);
-    expect([title.x, title.y]).toEqual([card.x + PAD, card.y + PAD]);
+    expect([title.x, title.y]).toEqual([card.x + TITLE_X, card.y + PAD]);
     expect(title.groupIds).toEqual(card.groupIds);
     expect(title.text).toBe(titleText(session()));
     // inserted right after its rect (z-order above it)
@@ -333,7 +333,7 @@ describe("reconcile", () => {
     const c3 = cardsOf(r.elements, "s3")[0]!;
     expect([c2.x, c2.y]).toEqual([3020, -500 + AREA_HEADER]);
     expect([c3.x, c3.y]).toEqual([3340, -500 + AREA_HEADER]);
-    expect(partOf(r.elements, c3, "card-title").x).toBe(3340 + PAD);
+    expect(partOf(r.elements, c3, "card-title").x).toBe(3340 + TITLE_X);
   });
 
   it("fills the inbox's two columns, each card GAP below the actual bottom of the one above", () => {
@@ -350,7 +350,7 @@ describe("reconcile", () => {
   it("a new two-line card does not squeeze into a hole only a one-line card fits", () => {
     const long = "A deliberately long session title that wraps onto a second line of the card";
     const gen = testGen();
-    const first = reconcile([session({ id: "a" }), session({ id: "b" })], [], NOW, gen);
+    const first = reconcile([session({ id: "a", title: "Short" }), session({ id: "b", title: "Short" })], [], NOW, gen);
     // A hole in column 0 exactly as tall as a one-line card plus the gaps.
     const a = cardsOf(first.elements, "a")[0]!;
     const blocker = { ...a, id: "blocker", y: a.y + 2 * a.height + 40, groupIds: [], customData: { excaliagent: { kind: "card", source: "claude", sessionId: "x" } } };
@@ -412,7 +412,7 @@ describe("reconcile", () => {
   });
 
   describe("migration of old bound-label cards", () => {
-    const s = session();
+    const s = session({ title: "Handoff" });
 
     it("upgrades in place: bound label soft-deleted, title+details at the rect, new group prepended, height grown", () => {
       const els = clone(legacyCard);
@@ -438,7 +438,7 @@ describe("reconcile", () => {
 
       const title = partOf(r.elements, card, "card-title");
       const details = partOf(r.elements, card, "card-details");
-      expect([title.x, title.y]).toEqual([before.x + PAD, before.y + PAD]);
+      expect([title.x, title.y]).toEqual([before.x + TITLE_X, before.y + PAD]);
       expect(details.x).toBe(before.x + PAD);
       expect(title.groupIds).toEqual(card.groupIds);
       expect(details.groupIds).toEqual(card.groupIds);
@@ -637,5 +637,182 @@ describe("reconcile: harness logo", () => {
     const [card] = cardsOf(r.elements, "B");
     expect(logoOf(r.elements, card!).customData!.excaliagent.sessionId).toBe("B");
     expect(live(r.elements).filter((e) => kind(e) === "card-logo")).toHaveLength(1);
+  });
+});
+
+describe("reconcile: character", () => {
+  const CAT = "excaliagent-emoji-1f431";
+  const DOG = "excaliagent-emoji-1f436";
+  const chars = (m: Record<string, string>) => ({ characters: new Map(Object.entries(m)) });
+  const charOf = (els: readonly ExcalidrawElement[], rect: ExcalidrawElement) =>
+    partOf(els, rect, "card-character") as unknown as ExcalidrawImageElement;
+  const charsOf = (els: readonly ExcalidrawElement[]) => live(els).filter((e) => kind(e) === "card-character");
+  const rectOf = (els: readonly ExcalidrawElement[], id: string) => els.find((e) => e.id === id)!;
+  const SHORT = session({ title: "Short" });
+
+  /** A ≤ 0.3 card: no character, title at the old left offset, moved by the user to (dx, dy). */
+  function oldCard(gen: ReturnType<typeof testGen>, dx = 100, dy = 50) {
+    const a = reconcile([SHORT], [], NOW, gen);
+    const card0 = cardsOf(a.elements)[0]!;
+    const old = a.elements.map((e) => (kind(e) === "card-title" ? { ...e, x: card0.x + PAD } : e));
+    const els = moveGroup(old, card0.groupIds[0]!, dx, dy);
+    return { els, card: els.find((e) => e.id === card0.id)! };
+  }
+
+  it("a spawned card carries its session's character top-left in its group, marked as laid out", () => {
+    const r = reconcile([session()], [], NOW, testGen(), chars({ s1: CAT }));
+    const card = cardsOf(r.elements)[0]!;
+    const c = charOf(r.elements, card);
+    expect(c).toMatchObject({ fileId: CAT, x: card.x + PAD, y: card.y + PAD, width: AVATAR_SIZE, groupIds: card.groupIds });
+    expect(card.customData!.excaliagent.charLayout).toBe(1);
+    expect(r.touchedIds).toContain(c.id);
+  });
+
+  it("without character data, characters are neither created nor removed", () => {
+    const gen = testGen();
+    const plain = reconcile([session()], [], NOW, gen);
+    expect(charsOf(plain.elements)).toHaveLength(0);
+    const withChar = reconcile([session()], [], NOW, testGen(), chars({ s1: CAT }));
+    expect(reconcile([session()], withChar.elements, NOW, gen).changed).toBe(false);
+  });
+
+  it("a card from before characters gets one at its rect's current corner; only a title still at the old spot moves", () => {
+    const gen = testGen();
+    const { els, card } = oldCard(gen);
+    const details0 = partOf(els, card, "card-details");
+    const r = reconcile([SHORT], els, NOW, gen, chars({ s1: CAT }));
+    expect(r.patched).toEqual(["s1"]);
+    const c = charOf(r.elements, card);
+    expect([c.x, c.y]).toEqual([card.x + PAD, card.y + PAD]);
+    expect([partOf(r.elements, card, "card-title").x, partOf(r.elements, card, "card-title").y]).toEqual([card.x + TITLE_X, card.y + PAD]);
+    expect(partOf(r.elements, card, "card-details")).toMatchObject({ x: details0.x, y: details0.y });
+    expect(rectOf(r.elements, card.id)).toMatchObject({ x: card.x, y: card.y, width: card.width, height: card.height });
+    expect(rectOf(r.elements, card.id).customData!.excaliagent.charLayout).toBe(1);
+    expect(reconcile([SHORT], r.elements, NOW, gen, chars({ s1: CAT })).changed).toBe(false);
+  });
+
+  it("a title the user moved is left where it is", () => {
+    const gen = testGen();
+    const { els, card } = oldCard(gen);
+    const title0 = partOf(els, card, "card-title");
+    const nudged = els.map((e) => (e.id === title0.id ? { ...e, x: e.x + 3, y: e.y + 7 } : e));
+    const r = reconcile([SHORT], nudged, NOW, gen, chars({ s1: CAT }));
+    expect(charsOf(r.elements)).toHaveLength(1);
+    expect(partOf(r.elements, card, "card-title")).toMatchObject({ x: title0.x + 3, y: title0.y + 7 });
+  });
+
+  it("a card whose session is unknown: texts untouched, no character while it would cover the old title", () => {
+    const gen = testGen();
+    const { els, card } = oldCard(gen);
+    const r = reconcile([], els, NOW, gen, chars({ s1: CAT }));
+    expect(charsOf(r.elements)).toHaveLength(0);
+    for (const k of ["card-title", "card-details"] as const)
+      expect(partOf(r.elements, card, k)).toMatchObject({ x: partOf(els, card, k).x, y: partOf(els, card, k).y, text: partOf(els, card, k).text });
+    expect(rectOf(r.elements, card.id).customData!.excaliagent.charLayout).toBeUndefined();
+    // Known later: migrated then.
+    const later = reconcile([SHORT], r.elements, NOW, gen, chars({ s1: CAT }));
+    expect(partOf(later.elements, card, "card-title").x).toBe(card.x + TITLE_X);
+    expect(charsOf(later.elements)).toHaveLength(1);
+  });
+
+  it("a card whose session is unknown gets its character when nothing has to move", () => {
+    const gen = testGen();
+    const a = reconcile([SHORT], [], NOW, gen); // new layout, made before characters loaded
+    const card = cardsOf(a.elements)[0]!;
+    const r = reconcile([], a.elements, NOW, gen, chars({ s1: CAT }));
+    expect(charOf(r.elements, card).fileId).toBe(CAT);
+    expect(partOf(r.elements, card, "card-title").x).toBe(partOf(a.elements, card, "card-title").x);
+  });
+
+  it("a character the user deleted stays deleted, and the title does not snap back", () => {
+    const gen = testGen();
+    const { els, card } = oldCard(gen);
+    const migrated = reconcile([SHORT], els, NOW, gen, chars({ s1: CAT })).elements;
+    const c0 = charOf(migrated, card);
+    const deleted = migrated.map((e) => (e.id === c0.id ? { ...e, isDeleted: true, version: e.version + 1 } : e));
+    const r = reconcile([SHORT], deleted, NOW, gen, chars({ s1: DOG }));
+    expect(r.changed).toBe(false);
+    expect(charsOf(r.elements)).toHaveLength(0);
+    expect(partOf(r.elements, card, "card-title").x).toBe(card.x + TITLE_X);
+  });
+
+  it("a new assignment changes only the image's file, where the user left it", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen, chars({ s1: CAT }));
+    const card = cardsOf(a.elements)[0]!;
+    const c0 = charOf(a.elements, card);
+    const nudged = a.elements.map((e) => (e.id === c0.id ? { ...e, x: e.x + 5, width: 60, height: 60, version: e.version + 1 } : e));
+    expect(reconcile([session()], nudged, NOW, gen, chars({ s1: CAT })).changed).toBe(false);
+    const r = reconcile([session()], nudged, NOW, gen, chars({ s1: DOG }));
+    const c = charOf(r.elements, card);
+    expect(c).toMatchObject({ id: c0.id, fileId: DOG, x: c0.x + 5, width: 60, height: 60 });
+    expect(r.touchedIds).toEqual([c0.id]);
+  });
+
+  it("no character for the session (empty pack): removed, and back once there is one", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen, chars({ s1: CAT }));
+    const card = cardsOf(a.elements)[0]!;
+    const r = reconcile([session()], a.elements, NOW, gen, chars({}));
+    expect(charsOf(r.elements)).toHaveLength(0);
+    expect(rectOf(r.elements, card.id).customData!.excaliagent.charLayout).toBeUndefined();
+    expect(reconcile([session()], r.elements, NOW, gen, chars({})).changed).toBe(false);
+    const back = reconcile([session()], r.elements, NOW, gen, chars({ s1: DOG }));
+    expect(charOf(back.elements, card).fileId).toBe(DOG);
+    expect(partOf(back.elements, card, "card-title").x).toBe(card.x + TITLE_X);
+  });
+
+  it("a lone copy of a character, or one whose card is gone, is soft-deleted", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen, chars({ s1: CAT }));
+    const card = cardsOf(a.elements)[0]!;
+    const c0 = charOf(a.elements, card);
+    const copy = { ...c0, id: "pasted-char", x: c0.x + 500, groupIds: ["other-g"] };
+    const r = reconcile([session()], [...a.elements, copy], NOW, gen, chars({ s1: CAT }));
+    expect(r.elements.find((e) => e.id === "pasted-char")!.isDeleted).toBe(true);
+    expect(charOf(r.elements, card).id).toBe(c0.id);
+
+    const noRect = a.elements.map((e) => (e.id === card.id ? { ...e, isDeleted: true } : e));
+    const gone = reconcile([session({ live: false, status: "dormant" })], noRect, NOW, gen, chars({ s1: CAT }));
+    expect(charsOf(gone.elements)).toHaveLength(0);
+  });
+
+  it("a pasted copy of a card keeps its own character, re-derived from its session", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen, chars({ s1: CAT }));
+    const parts = a.elements.filter((e) => kind(e)?.startsWith("card"));
+    const gid = parts[0]!.groupIds[0]!;
+    const pasted = parts.map((e) => ({ ...e, id: `p-${e.id}`, x: e.x + 1000, groupIds: e.groupIds.map((g) => (g === gid ? "pasted-g" : g)) }));
+    const r = reconcile([session()], [...a.elements, ...pasted], NOW, gen, chars({ s1: DOG }));
+    const cards = cardsOf(r.elements, "s1");
+    expect(cards).toHaveLength(2);
+    for (const c of cards) expect(charOf(r.elements, c).fileId).toBe(DOG);
+  });
+
+  it("a character from before the layout flag just gets the flag", () => {
+    const gen = testGen();
+    const a = reconcile([session()], [], NOW, gen, chars({ s1: CAT }));
+    const card = cardsOf(a.elements)[0]!;
+    const unflagged = a.elements.map((e) =>
+      e.id === card.id ? { ...e, customData: { excaliagent: { ...e.customData!.excaliagent, charLayout: undefined } } } : e,
+    );
+    const r = reconcile([session()], unflagged, NOW, gen, chars({ s1: CAT }));
+    expect(r.touchedIds).toEqual([card.id]);
+    expect(rectOf(r.elements, card.id).customData!.excaliagent.charLayout).toBe(1);
+  });
+
+  it("follows the card when it is retargeted to a continuation", () => {
+    const gen = testGen();
+    const a = reconcile([session({ id: "A" })], [], NOW, gen, chars({ A: CAT }));
+    const r = reconcile(
+      [session({ id: "A", live: false, status: "dormant", continuedIn: "B" }), session({ id: "B" })],
+      a.elements,
+      NOW,
+      gen,
+      chars({ A: CAT, B: CAT }),
+    );
+    const [card] = cardsOf(r.elements, "B");
+    expect(charOf(r.elements, card!)).toMatchObject({ fileId: CAT, customData: { excaliagent: { sessionId: "B" } } });
+    expect(charsOf(r.elements)).toHaveLength(1);
   });
 });

@@ -9,7 +9,7 @@ const inbox = makeInbox(gen, NOW).find((e) => e.type === "rectangle")!;
 const ONE = cardHeight(1);
 /** A card rect, one title line tall unless `over` says otherwise. */
 const card = (x: number, y: number, over: Partial<ExcalidrawElement> = {}) =>
-  ({ ...makeCard(session(), { x, y }, gen, NOW)[0], ...over }) as ExcalidrawElement;
+  ({ ...makeCard(session({ title: "Short" }), { x, y }, gen, NOW)[0], ...over }) as ExcalidrawElement;
 const col = (c: number) => inbox.x + GAP + c * (CARD_W + GAP);
 const top = inbox.y + AREA_HEADER;
 
