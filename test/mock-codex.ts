@@ -2,8 +2,11 @@
 // names in session_index.jsonl, and for "live" threads a lock file in
 // thread-writer-locks/ held (in the synthetic /proc of test/mock-proc.ts) by a
 // real dummy process presented as an in-process `codex` holder, like
-// `codex exec`. Used by the e2e tests and `npm run demo`. Never touches
-// ~/.codex, and the server under test never reads the real /proc.
+// `codex exec`; or, with `holder: "daemon"`, by a dummy shared app-server
+// daemon, with TUIs (`tui()`) and other Codex processes (`spawn()`) as
+// separate dummies, which is how the interactive TUI really works (see
+// docs/design.md "Liveness"). Used by the e2e tests and `npm run demo`. Never
+// touches ~/.codex, and the server under test never reads the real /proc.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -32,6 +35,16 @@ export interface MockCodexThreadSpec {
    * Default true.
    */
   rollout?: boolean;
+  /**
+   * Who holds the lock: "self" (default), a dummy `codex exec`; "daemon", the
+   * shared dummy app-server daemon, so only a TUI from `tui()` makes it live.
+   */
+  holder?: "self" | "daemon";
+}
+
+export interface MockCodexProcess {
+  pid: number;
+  kill(): void;
 }
 
 export interface MockCodexThread extends MockCodexThreadSpec {
@@ -48,8 +61,12 @@ export interface MockCodex {
   add(spec: MockCodexThreadSpec): MockCodexThread;
   /** Start (true) or finish (false) a turn. */
   setBusy(id: string, busy: boolean): void;
-  /** Unload the thread like a clean exit: the process ends and its lock file goes. */
+  /** Unload the thread like a clean exit: the process ends (or the daemon unlocks) and its lock file goes. */
   exit(id: string): void;
+  /** A Codex TUI (`codex [args]`) in `cwd`, started now. */
+  tui(cwd: string, args?: string[]): MockCodexProcess;
+  /** Any other process running Codex's binary, e.g. its sandbox helper. */
+  spawn(argv: string[], cwd: string, ppid?: number): MockCodexProcess;
   teardown(): void;
 }
 
@@ -76,8 +93,25 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
     appendFileSync(t.path, `${JSON.stringify({ timestamp: iso(at), type, payload })}\n`);
   const lockPath = (t: MockCodexThread) => join(dir, "thread-writer-locks", `${t.id}.lock`);
 
+  const dummy = (argv: string[], cwd: string, ppid?: number): ChildProcess => {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" });
+    child.unref();
+    proc.add(child, { comm: "codex", argv, exe: bin, cwd, ...(ppid ? { ppid } : {}) });
+    return child;
+  };
+  const handle = (child: ChildProcess): MockCodexProcess => ({ pid: child.pid!, kill: () => child.kill("SIGKILL") });
+  let daemon: ChildProcess | undefined;
+  const spawned: ChildProcess[] = [];
+
   function start(t: MockCodexThread) {
     writeFileSync(lockPath(t), "");
+    if (t.holder === "daemon") {
+      daemon ??= dummy([bin, "app-server", "--listen", "unix://", "--analytics-default-enabled", "--managed-daemon"], "/");
+      t.pid = daemon.pid;
+      proc.openFd(daemon.pid!, lockPath(t));
+      proc.lock(daemon.pid!, statSync(lockPath(t)).ino);
+      return;
+    }
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" });
     child.unref();
     t.process = child;
@@ -144,13 +178,26 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
     },
     exit(id) {
       const t = get(id);
+      if (t.holder === "daemon" && t.pid !== undefined) proc.unlock(t.pid, statSync(lockPath(t)).ino);
       t.process?.kill("SIGKILL");
       t.process = undefined;
       t.pid = undefined;
       rmSync(lockPath(t), { force: true });
     },
+    tui(cwd, args = []) {
+      const c = dummy([bin, ...args], cwd);
+      spawned.push(c);
+      return handle(c);
+    },
+    spawn(argv, cwd, ppid) {
+      const c = dummy(argv, cwd, ppid);
+      spawned.push(c);
+      return handle(c);
+    },
     teardown() {
       for (const t of threads.values()) t.process?.kill("SIGKILL");
+      daemon?.kill("SIGKILL");
+      for (const p of spawned) p.kill("SIGKILL");
       rmSync(dir, { recursive: true, force: true });
     },
   };

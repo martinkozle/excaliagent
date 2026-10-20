@@ -15,7 +15,9 @@
 //
 // So a thread held by a non-daemon codex process is live in that process. A
 // thread held by the daemon is live only when a TUI process claims it: by its
-// argv (`resume <id>`), else by working directory, newest lock first.
+// argv (`resume <id>`), else by working directory, newest lock first, among
+// threads loaded after that TUI started (a thread loaded earlier belongs to
+// another, maybe closed, TUI; a fresh TUI's own thread appears ~1 s after it).
 // Daemon threads no TUI claims are lingering, i.e. dormant. Only the first two
 // (in-process holder, `resume <id>`) are exact; a working-directory claim is a
 // guess, so such a session cannot be stopped from the board. Pure matching
@@ -24,7 +26,7 @@
 import { readdir, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { createProcessTable } from "../desktop/process-table.ts";
-import { CODEX_ID } from "./codex-rollout.ts";
+import { CODEX_ID, uuidV7Ms } from "./codex-rollout.ts";
 import { bootTime, startedAt } from "./proc.ts";
 
 export interface HeldLock {
@@ -87,8 +89,18 @@ export function codexSubcommand(argv: readonly string[]): string | undefined {
 
 export const isDaemon = (argv: readonly string[]): boolean => codexSubcommand(argv) === "app-server";
 
-/** An interactive Codex TUI process. */
+/**
+ * An interactive Codex TUI process. Codex also runs its own binary as helpers
+ * (verified on 0.163.0: `codex-linux-sandbox ...` around every sandboxed
+ * command, once under bwrap, with the repo as cwd); those have another
+ * argv[0] (`codex-linux-sandbox`, `apply_patch`) or a `--codex-run-as-*`
+ * argv[1], and are not TUIs.
+ */
 export const isTui = (argv: readonly string[]): boolean => {
+  const shim = /^node(\.exe)?$/.test(basename(argv[0] ?? ""));
+  const name = basename((shim ? argv[1] : argv[0]) ?? "");
+  if (!(shim ? name === "codex" || name === "codex.js" : name === "codex" || name === "codex.exe")) return false;
+  if (args(argv)[0]?.startsWith("--codex-run-as-")) return false;
   const sub = codexSubcommand(argv);
   return sub === undefined || !NOT_TUI.has(sub);
 };
@@ -116,6 +128,7 @@ export interface LiveThread {
  * Pure: which held threads are live, and where. `threadCwd` gives a thread's
  * start cwd (from its rollout; undefined before the first message is written).
  * `isUser` says whether a thread may be claimed by a TUI (not a sub-agent etc.).
+ * Deterministic: the same locks and processes give the same answer in any order.
  */
 export function assignLive(
   locks: readonly HeldLock[],
@@ -157,7 +170,17 @@ export function assignLive(
     for (const id of free) {
       const cwd = threadCwd(id);
       if (cwd !== undefined && cwd !== t.cwd) continue;
-      if (best === undefined || loaded.get(id)! > loaded.get(best)!) best = id;
+      // Only threads this TUI can have opened: loaded after it started (else
+      // another TUI's, lingering), and, with no rollout yet (nobody can resume
+      // such a thread), created after it started. startedAt is never late
+      // (btime is whole seconds, rounded down), so its own thread always passes.
+      if (t.startedAt > 0) {
+        if (loaded.get(id)! < t.startedAt) continue;
+        const created = uuidV7Ms(id);
+        if (cwd === undefined && created !== undefined && created < t.startedAt) continue;
+      }
+      // Newest load wins; a tie goes to the larger (v7: newer) id, never to scan order.
+      if (best === undefined || loaded.get(id)! > loaded.get(best)! || (loaded.get(id) === loaded.get(best) && id > best)) best = id;
     }
     if (best === undefined) continue;
     free.delete(best);

@@ -123,3 +123,32 @@ test("a TUI opened but not prompted yet (no rollout) dates from its thread id, n
   await expect.poll(() => card(fresh)?.backgroundColor).toBe(GREY);
   expect(card(fresh)?.label).toContain("idle · now");
 });
+
+// The real sequence (verified on codex-cli 0.163.0, docs/design.md "Liveness"):
+// a TUI closed before its first prompt leaves its thread loaded in the daemon
+// with no rollout; a new TUI in the same directory runs ~1 s before its own
+// thread exists. The board must not show the old thread as the new TUI's in
+// between (it spawned a second card that then went dormant), nor later, while
+// Codex's sandbox helper (its own binary, the repo as cwd) runs a command.
+test("a fresh TUI beside a closed TUI's unprompted thread spawns one card, and keeps it", async ({ page }) => {
+  const dir = "/home/alice/src/course-app";
+  const closed = mockThreadId(Date.now() - 60_000);
+  board.codex.add({ id: closed, cwd: dir, rollout: false, holder: "daemon" });
+  await open(page);
+  await expect.poll(() => board.savedCards().length).toBe(2);
+
+  const tui = board.codex.tui(dir);
+  await page.waitForTimeout(4_500); // two polls before Codex creates the TUI's thread
+  const mine = mockThreadId();
+  board.codex.add({ id: mine, cwd: dir, rollout: false, holder: "daemon" });
+  await expect.poll(() => card(mine)?.backgroundColor).toBe(GREY);
+  expect(card(closed)).toBeUndefined();
+
+  // A command runs: `codex-linux-sandbox` under bwrap (not a Codex parent).
+  board.codex.spawn(["codex-linux-sandbox", "--sandbox-policy-cwd", dir, "--command-cwd", dir, "--", "bash", "-lc", "sleep 8"], dir, 4242);
+  await page.waitForTimeout(4_500);
+  expect(card(mine)?.backgroundColor).toBe(GREY);
+  expect(card(closed)).toBeUndefined();
+  expect(board.savedCards().length).toBe(3);
+  tui.kill();
+});

@@ -11,7 +11,7 @@ import { basename, join } from "node:path";
 import type { Session } from "../../shared/types.ts";
 import { createProcessTable } from "../desktop/process-table.ts";
 import { assignLive, isDaemon, looksLikeCodex, scanCodexProcesses, type CodexProcScan, type LiveThread } from "./codex-live.ts";
-import { CODEX_ID, isUserThread, RolloutScanner, rolloutThreadId, SessionIndex, type RolloutInfo } from "./codex-rollout.ts";
+import { CODEX_ID, isUserThread, RolloutScanner, rolloutThreadId, SessionIndex, uuidV7Ms, type RolloutInfo } from "./codex-rollout.ts";
 import { GitReader, type GitInfo } from "./git.ts";
 import { onceLogger, type Logger } from "./log.ts";
 import type { Source } from "./types.ts";
@@ -51,12 +51,7 @@ function defaultIsCodexSessionProcess(procRoot: string | undefined): (pid: numbe
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** Creation time of a UUIDv7 (its first 48 bits, epoch ms), else undefined. */
-export function uuidV7Ms(id: string): number | undefined {
-  if (id[14] !== "7") return undefined;
-  const ms = parseInt(id.slice(0, 8) + id.slice(9, 13), 16);
-  return Number.isFinite(ms) ? ms : undefined;
-}
+export { uuidV7Ms };
 
 interface RolloutFile {
   id: string;

@@ -110,6 +110,13 @@ export class RolloutScanner extends JsonlScanner<Acc, RolloutInfo> {
 /** Thread ids are UUIDs (v7 in practice). */
 export const CODEX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Creation time of a UUIDv7 (its first 48 bits, epoch ms), else undefined. */
+export function uuidV7Ms(id: string): number | undefined {
+  if (id[14] !== "7") return undefined;
+  const ms = parseInt(id.slice(0, 8) + id.slice(9, 13), 16);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
 /**
  * `rollout-2026-10-20T14-07-46-<uuid>.jsonl[.zst]`; a reverted thread's file
  * appends `_<rollout id>` to the thread id. Returns the thread id.

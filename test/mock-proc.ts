@@ -4,7 +4,7 @@
 // pids are real dummy processes, so stopping a session is still a real
 // SIGTERM; an entry is removed when its process exits.
 import type { ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface MockProcEntry {
@@ -24,6 +24,10 @@ export interface MockProc {
   add(child: ChildProcess, entry: MockProcEntry): void;
   /** A held flock on `inode` by `pid`, as /proc/locks lists it. */
   lock(pid: number, inode: number): void;
+  /** Releases it. */
+  unlock(pid: number, inode: number): void;
+  /** Opens `path` in `pid` (a new fd/N). */
+  openFd(pid: number, path: string): void;
   remove(pid: number): void;
 }
 
@@ -69,6 +73,15 @@ export function createMockProc(root: string): MockProc {
     lock(pid, inode) {
       locks.set(pid, [...(locks.get(pid) ?? []), inode]);
       writeLocks();
+    },
+    unlock(pid, inode) {
+      locks.set(pid, (locks.get(pid) ?? []).filter((i) => i !== inode));
+      writeLocks();
+    },
+    openFd(pid, path) {
+      const fd = join(root, String(pid), "fd");
+      if (!existsSync(fd)) return;
+      symlinkSync(path, join(fd, String(3 + readdirSync(fd).length)));
     },
     remove,
   };

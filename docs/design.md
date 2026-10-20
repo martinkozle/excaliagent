@@ -229,13 +229,39 @@ shows too).
   lock alone therefore does not mean anyone is looking at the thread.
 - `codex exec` runs without the daemon and holds the lock itself (S; V: its
   lock file was gone after it exited; the holder pid was not inspected).
+- **A fresh TUI, step by step** (V on 0.163.0, a lock dir, `/proc/locks` and
+  the processes polled every 200 ms): the TUI process starts; ~1.4 s later
+  the daemon creates and locks its new thread (lock birth after the TUI's
+  start; the thread's v7 id dates from then too); the rollout appears with the
+  first prompt. One thread per TUI, with or without the folder-trust prompt
+  (then the thread is created after "Trust and continue"). A TUI closed
+  before its first prompt leaves its thread loaded in the daemon, with no
+  rollout, like any other (and `loaded-threads.json` in
+  `app-server-daemon/` lists the loaded threads for the daemon's restarts, S:
+  `app-server-transport/src/daemon_recovery.rs`).
+- **Codex's own helpers run its binary** (V on 0.163.0): every sandboxed
+  command runs `codex-linux-sandbox --sandbox-policy-cwd <repo> ...` (exe =
+  the codex binary, cwd = the repo) twice, once under the daemon and once
+  under `bwrap`; `apply_patch` and `--codex-run-as-*` helpers likewise (S:
+  `arg0/src/lib.rs`). They are not TUIs: a TUI's argv[0] is `codex` (or the
+  npm shim) and its argv[1] is not `--codex-run-as-*`.
 - **Rule** (`src/server/sources/codex-live.ts`): a thread held by a non-daemon
   Codex process is live in that process. A thread held by the daemon is live
   only when a TUI process claims it: first by argv (`resume <id>`), then each
   remaining TUI (latest start time first, from `/proc/<pid>/stat` + `btime`)
   claims the most recently loaded (lock file
-  birth time) unclaimed user thread whose `session_meta.cwd` (realpath) equals
-  the TUI's `/proc/<pid>/cwd`, or one with no rollout yet (a fresh TUI's).
+  birth time; a tie goes to the larger id, never to scan order) unclaimed user
+  thread whose `session_meta.cwd` (realpath) equals
+  the TUI's `/proc/<pid>/cwd`, or one with no rollout yet (a fresh TUI's),
+  among the threads it can have opened: loaded after the TUI started, and,
+  with no rollout, also created (v7 id) after it started (nobody can resume a
+  thread without a rollout, so it is the TUI's that made it). The computed
+  start time is never late (`btime` is whole seconds, rounded down).
+  Without that rule (the first Codex adapter), a new TUI next to a
+  closed TUI's unprompted thread in the same directory claimed that thread
+  for the ~1.4 s before its own existed (a second card, which then went
+  dormant), and claimed it again whenever a sandbox helper, counted as a
+  newer TUI, took its own thread (the card flapped live and dormant).
   Unclaimed daemon threads are lingering → dormant. Its pid is the TUI's, so
   herdr links the pane like Claude's. The npm shim (`node …/codex.js`, S) and
   its native child count once, as the shim. A TUI that names a thread
@@ -245,11 +271,17 @@ shows too).
   exact; a directory claim is a guess. Only exact matches set
   `Session.canEnd` (the board offers Stop) and only they can be stopped
   (`end` answers "unsupported" otherwise), so a guess never sends a SIGTERM.
-- **Known gap**: in one directory, a TUI that is still open on an older
-  thread while a newer thread of a closed TUI lingers in the daemon (up to
-  30 min) is matched to the newer one. Also `/new` or `/resume` inside a TUI
-  switches threads without changing its argv; the cwd rule then picks the
-  newest. Mismatches only affect which of two same-directory cards is live.
+- **Known gap**: two TUIs in one directory: a thread the later one loaded is
+  matched to it, even if the earlier one opened it. `/new` or `/resume`
+  inside a TUI switches threads without changing its argv; the cwd rule then
+  picks the newest load. A `/resume` of a thread the daemon still had loaded
+  (no new lock) is not matched: that card stays dormant. After a daemon restart
+  every thread is reloaded, so lingering same-directory threads may be
+  matched again. Mismatches only affect which of two same-directory cards is
+  live.
+- The web layer has no "phantom card" guard (removing an auto-spawned card
+  whose session vanished within seconds): a session closed quickly is real,
+  and the board never removes a card on its own. The fix is in the match.
 - Processes are only inspected when a lock file exists, and other processes'
   command lines and cwds only when the daemon holds one. Not Linux (no
   `/proc/locks`): no live Codex sessions; they are offered as dormant only.

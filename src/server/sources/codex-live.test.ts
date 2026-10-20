@@ -38,6 +38,12 @@ describe("process classification", () => {
     expect(isTui([BIN, "resume", "--last"])).toBe(true);
     expect(isTui([BIN, "fork", tid(1)])).toBe(true);
     for (const sub of ["exec", "e", "review", "app-server", "mcp-server", "login", "agents"]) expect(isTui([BIN, sub])).toBe(false);
+    // Helpers Codex runs from its own binary under another argv[0], or with a marker argv[1].
+    expect(isTui(["codex-linux-sandbox", "--sandbox-policy-cwd", "/w", "--", "bash"])).toBe(false);
+    expect(isTui(["/tmp/x/codex-arg0abc/apply_patch", "*** Begin Patch"])).toBe(false);
+    expect(isTui([BIN, "--codex-run-as-arg0-exec-helper"])).toBe(false);
+    expect(isTui([BIN, "--codex-run-as-fs-helper"])).toBe(false);
+    expect(isTui(["node", "/x/codex.js"])).toBe(true);
   });
 
   it("reads the thread id of `codex resume <id>` only", () => {
@@ -108,12 +114,12 @@ describe("assignLive", () => {
 
   it("the npm shim and its native child count as one TUI (the shim, the pane's foreground)", () => {
     const procs = [proc(10, DAEMON, "/"), proc(20, ["node", "/x/codex.js"], A), proc(21, [BIN], A, 20)];
-    expect(assignLive([lock(1, 10), lock(2, 10)], procs, () => A)).toEqual([{ threadId: tid(2), pid: 20, cwd: A, exact: false }]);
+    expect(assignLive([lock(1, 10, 101), lock(2, 10, 102)], procs, () => A)).toEqual([{ threadId: tid(2), pid: 20, cwd: A, exact: false }]);
   });
 
   it("orders TUIs by start time, not pid (pids wrap)", () => {
     const procs = [proc(10, DAEMON, "/"), proc(900, [BIN], A, 1, 100), proc(20, [BIN], A, 1, 500)];
-    expect(assignLive([lock(1, 10, 1), lock(2, 10, 2)], procs, () => A)).toEqual([
+    expect(assignLive([lock(1, 10, 600), lock(2, 10, 700)], procs, () => A)).toEqual([
       { threadId: tid(2), pid: 20, cwd: A, exact: false },
       { threadId: tid(1), pid: 900, cwd: A, exact: false },
     ]);
@@ -122,6 +128,83 @@ describe("assignLive", () => {
   it("a TUI that names its thread never falls back to guessing by directory", () => {
     const procs = [proc(10, DAEMON, "/"), proc(20, [BIN, "resume", tid(9)], A)];
     expect(assignLive([lock(1, 10)], procs, () => A)).toEqual([]);
+  });
+
+  // Verified on codex-cli 0.163.0 (throwaway home, mock API): a TUI closed
+  // before its first prompt leaves its thread loaded in the daemon with no
+  // rollout. A new TUI in the same directory starts ~1 s before the daemon
+  // creates and locks its own thread.
+  describe("a fresh TUI next to a closed TUI's unprompted thread", () => {
+    const T = Date.parse("2026-10-20T17:02:58.000Z");
+    // UUIDv7 ids carrying their creation time.
+    const v7 = (ms: number, n: number) => {
+      const h = ms.toString(16).padStart(12, "0");
+      return `${h.slice(0, 8)}-${h.slice(8)}-7000-8000-${String(n).padStart(12, "0")}`;
+    };
+    const old = v7(T - 9_000, 1); // the closed TUI's thread: no rollout, still loaded
+    const mine = v7(T + 1_400, 2); // the new TUI's own thread
+    const daemon = proc(10, DAEMON, "/", 1, T - 60_000);
+    const tui = proc(20, [BIN], A, 7, T);
+    const noRollout = () => undefined;
+
+    it("before its own thread exists, the TUI claims nothing (no phantom card)", () => {
+      expect(assignLive([{ threadId: old, pid: 10, loadedAt: T - 9_000 }], [daemon, tui], noRollout)).toEqual([]);
+    });
+
+    it("then claims its own thread, never the older one", () => {
+      const locks = [
+        { threadId: old, pid: 10, loadedAt: T - 9_000 },
+        { threadId: mine, pid: 10, loadedAt: T + 1_400 },
+      ];
+      expect(assignLive(locks, [daemon, tui], noRollout)).toEqual([{ threadId: mine, pid: 20, cwd: A, exact: false }]);
+    });
+
+    it("a thread from the same directory loaded before the TUI started is someone else's, rollout or not", () => {
+      const lingering = v7(T - 600_000, 3);
+      expect(assignLive([{ threadId: lingering, pid: 10, loadedAt: T - 300_000 }], [daemon, tui], () => A)).toEqual([]);
+    });
+
+    it("a rollout-less thread created before the TUI started is not its own, even if (re)loaded later", () => {
+      expect(assignLive([{ threadId: old, pid: 10, loadedAt: T + 5_000 }], [daemon, tui], noRollout)).toEqual([]);
+    });
+
+    it("the same thread wins on every poll, whatever order the scan lists locks and processes in", () => {
+      const both = [
+        { threadId: old, pid: 10, loadedAt: T - 9_000 },
+        { threadId: mine, pid: 10, loadedAt: T + 1_400 },
+      ];
+      // Two candidates loaded in the same millisecond tie-break by id, not by scan order.
+      const tied = [
+        { threadId: v7(T + 2_000, 4), pid: 10, loadedAt: T + 2_000 },
+        { threadId: v7(T + 2_000, 5), pid: 10, loadedAt: T + 2_000 },
+      ];
+      for (let poll = 0; poll < 6; poll++) {
+        const flip = poll % 2 === 1;
+        const procs = flip ? [tui, daemon] : [daemon, tui];
+        expect(assignLive(flip ? [...both].reverse() : both, procs, noRollout)).toEqual([{ threadId: mine, pid: 20, cwd: A, exact: false }]);
+        expect(assignLive(flip ? [...tied].reverse() : tied, procs, noRollout)).toEqual([
+          { threadId: v7(T + 2_000, 5), pid: 20, cwd: A, exact: false },
+        ]);
+      }
+    });
+
+    it("Codex's sandbox helpers (same binary, the repo as cwd) are not TUIs and steal nothing", () => {
+      // Verified on 0.163.0: while a command runs, `codex-linux-sandbox` runs twice,
+      // once under the daemon and once under bwrap (whose parent is not Codex).
+      const helperArgv = ["codex-linux-sandbox", "--sandbox-policy-cwd", A, "--command-cwd", A, "--", "bash", "-lc", "sleep 8"];
+      const helper = proc(31, helperArgv, A, 30, T + 20_000);
+      const patch = proc(32, ["apply_patch", "*** Begin Patch"], A, 41, T + 21_000);
+      const execHelper = proc(33, [BIN, "--codex-run-as-arg0-exec-helper", "x"], A, 41, T + 22_000);
+      const locks = [
+        { threadId: old, pid: 10, loadedAt: T - 9_000 },
+        { threadId: mine, pid: 10, loadedAt: T + 1_400 },
+      ];
+      for (let poll = 0; poll < 3; poll++) {
+        expect(assignLive(locks, [daemon, tui, helper, patch, execHelper], () => A)).toEqual([
+          { threadId: mine, pid: 20, cwd: A, exact: false },
+        ]);
+      }
+    });
   });
 
   it("non-TUI subcommands never claim daemon threads", () => {
