@@ -228,8 +228,13 @@ describe("lane drop setting", () => {
 });
 
 describe("logoAt", () => {
+  /** Element ids unique per card, like a real board. */
+  const uniqueGen = (prefix: string) => {
+    const g = testGen();
+    return { id: () => `${prefix}:${g.id()}`, seed: g.seed };
+  };
   const full = (id: string, x = 0, y = 0) =>
-    makeCard(session({ id }), { x, y }, testGen(), NOW) as unknown as ExcalidrawElement[];
+    makeCard(session({ id }), { x, y }, uniqueGen(id), NOW) as unknown as ExcalidrawElement[];
   const logoOf = (els: readonly ExcalidrawElement[]) => els.find((e) => e.customData?.excaliagent?.kind === "card-logo")!;
   const centre = (e: ExcalidrawElement) => [e.x + e.width / 2, e.y + e.height / 2] as const;
 
@@ -251,6 +256,40 @@ describe("logoAt", () => {
     const l = logoOf(els);
     expect(logoAt(els, l.x - 6, l.y + l.height / 2)).toBeUndefined();
     expect(logoAt(els, 5000, 5000)).toBeUndefined();
+  });
+
+  it("a padding widens the hit box on every side", () => {
+    const els = full("a");
+    const l = logoOf(els);
+    const cy = l.y + l.height / 2;
+    const cx = l.x + l.width / 2;
+    expect(logoAt(els, l.x - 5, cy, 6)).toBe("a");
+    expect(logoAt(els, l.x + l.width + 5, cy, 6)).toBe("a");
+    expect(logoAt(els, cx, l.y - 5, 6)).toBe("a");
+    expect(logoAt(els, cx, l.y + l.height + 5, 6)).toBe("a");
+    expect(logoAt(els, l.x - 7, cy, 6)).toBeUndefined();
+    expect(logoAt(els, l.x - 5, cy)).toBeUndefined();
+  });
+
+  it("the padded box never reaches beyond the card", () => {
+    const els = full("a");
+    const rect = els[0]!;
+    const l = logoOf(els);
+    const cy = l.y + l.height / 2;
+    // A wide padding (a zoomed-out board) would reach past the card's right and top edges.
+    expect(logoAt(els, rect.x + rect.width - 1, cy, 40)).toBe("a");
+    expect(logoAt(els, rect.x + rect.width + 2, cy, 40)).toBeUndefined();
+    expect(logoAt(els, l.x + l.width / 2, rect.y - 2, 40)).toBeUndefined();
+  });
+
+  it("the card's own title does not cover the padding; another card on top does", () => {
+    const els = full("a");
+    const l = logoOf(els);
+    const [x, y] = [l.x - 5, l.y + l.height / 2];
+    const ownTitle = { ...els.find((e) => e.customData?.excaliagent?.kind === "card-title")!, x: x - 50, y: y - 10, width: 52, height: 20 };
+    expect(logoAt([...els, ownTitle as ExcalidrawElement], x, y, 6)).toBe("a");
+    const b = full("b", x - 150, y - els[0]!.height / 2); // its body covers the point, its own logo is well above
+    expect(logoAt([...els, ...b], x, y, 6)).toBeUndefined();
   });
 
   it("ignores a deleted logo and a logo whose card is deleted", () => {
@@ -287,5 +326,8 @@ describe("logoAt", () => {
     expect(logoAt(rotated, x, y)).toBe("a");
     const [ox, oy] = centre(logoOf(els)); // the logo's old place is the bottom-left corner now
     expect(logoAt(rotated, ox, oy)).toBeUndefined();
+    // Upside down, "5 px beyond the logo's left edge" is 5 px to the right on the page.
+    const l = logoOf(rotated);
+    expect(logoAt(rotated, l.x + l.width + 5, y, 6)).toBe("a");
   });
 });

@@ -43,15 +43,15 @@ export function cardAt(elements: readonly ExcalidrawElement[], x: number, y: num
   return undefined;
 }
 
-/** Whether the scene point lies in the element's box, turned by its angle around its centre. */
-function inBox(e: ExcalidrawElement, x: number, y: number): boolean {
+/** Whether the scene point lies in the element's box grown by `pad` on every side, turned by its angle around its centre. */
+function inBox(e: ExcalidrawElement, x: number, y: number, pad = 0): boolean {
   const cx = e.x + e.width / 2;
   const cy = e.y + e.height / 2;
   const cos = Math.cos(-e.angle);
   const sin = Math.sin(-e.angle);
   const dx = (x - cx) * cos - (y - cy) * sin;
   const dy = (x - cx) * sin + (y - cy) * cos;
-  return Math.abs(dx) <= e.width / 2 && Math.abs(dy) <= e.height / 2;
+  return Math.abs(dx) <= e.width / 2 + pad && Math.abs(dy) <= e.height / 2 + pad;
 }
 
 /** Elements a click inside goes through in Excalidraw: frames, unfilled shapes and lines. */
@@ -61,26 +61,44 @@ function seeThrough(e: ExcalidrawElement): boolean {
   return e.backgroundColor === "transparent";
 }
 
+/** The card (rect) id an element belongs to, if it is a card or one of its parts. */
+function cardIdOf(e: ExcalidrawElement): string | undefined {
+  if (cardMeta(e)) return e.id;
+  const id = e.customData?.excaliagent?.cardId;
+  return typeof id === "string" ? id : undefined;
+}
+
 /**
  * Session id of the card whose harness logo is under the scene point, unless
  * something solid (a filled shape, a text, an image) lies on top of it there.
- * Only logos of non-deleted cards count.
+ * Only logos of non-deleted cards count. The hit box is the logo grown by
+ * `pad` (scene units) on every side, but never beyond its card's rect; the
+ * card's own parts (title, character, rect) never cover it.
  */
-export function logoAt(elements: readonly ExcalidrawElement[], x: number, y: number): string | undefined {
+export function logoAt(elements: readonly ExcalidrawElement[], x: number, y: number, pad = 0): string | undefined {
+  // Solid card parts above the point, so far: they cover a logo of another card only.
+  const covering = new Set<string>();
   for (let i = elements.length - 1; i >= 0; i--) {
     const e = elements[i]!;
-    if (e.isDeleted || !inBox(e, x, y)) continue;
+    if (e.isDeleted) continue;
     const m = e.customData?.excaliagent;
     if (e.type === "image" && m?.kind === "card-logo" && typeof m.sessionId === "string") {
+      if (!inBox(e, x, y, pad)) continue;
       const card = elements.find((c) => c.id === m.cardId);
-      return card && !card.isDeleted && cardMeta(card) ? m.sessionId : undefined;
+      if (!card || card.isDeleted || !cardMeta(card)) return undefined;
+      // The padding stops at the card's edge.
+      if (!inBox(card, x, y)) continue;
+      return [...covering].every((id) => id === card.id) ? m.sessionId : undefined;
     }
-    if (!seeThrough(e)) return undefined;
+    if (!inBox(e, x, y) || seeThrough(e)) continue;
+    const owner = cardIdOf(e);
+    if (owner === undefined) return undefined;
+    covering.add(owner);
   }
   return undefined;
 }
 
-const shellQuote =(s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
 /**
  * The server-built resume command (`claude --resume <id>`, `codex resume <id>`)

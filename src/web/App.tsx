@@ -83,6 +83,11 @@ const TICK_MS = 30_000;
 const CLICK_SLOP_PX = 4;
 /** Logo clicks and double-clicks within this long open a session once. */
 const JUMP_DEBOUNCE_MS = 600;
+/**
+ * The logo's clickable area reaches this far beyond it (CSS px, the same on
+ * screen at every zoom; logoAt keeps it inside the card).
+ */
+const LOGO_HIT_PAD_PX = 6;
 const measure = canvasMeasure();
 
 // Fonts are split into unicode-range faces; load the ones card text actually uses.
@@ -486,9 +491,10 @@ export function App() {
       const appState = excalidraw.getAppState() as AppState;
       if (appState.activeTool.type !== "selection" || appState.editingTextElement) return undefined;
       const { x, y } = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
-      return logoAt(excalidraw.getSceneElements(), x, y);
+      return logoAt(excalidraw.getSceneElements(), x, y, LOGO_HIT_PAD_PX / appState.zoom.value);
     };
-    let press: { sessionId: string; x: number; y: number } | null = null;
+    type Selection = Pick<AppState, "selectedElementIds" | "selectedGroupIds">;
+    let press: { sessionId: string; x: number; y: number; selection: Selection } | null = null;
     const onPointerMove = (event: PointerEvent) => {
       if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_SLOP_PX) press = null;
       const hover = event.buttons === 0 && event.target instanceof HTMLCanvasElement && !!logoUnder(event.clientX, event.clientY);
@@ -499,13 +505,19 @@ export function App() {
       const plain = event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
       if (!plain || !(event.target instanceof HTMLCanvasElement)) return;
       const sessionId = logoUnder(event.clientX, event.clientY);
-      if (sessionId) press = { sessionId, x: event.clientX, y: event.clientY };
+      if (!sessionId) return;
+      // Excalidraw selects the card on this press; a click puts this selection back.
+      const { selectedElementIds, selectedGroupIds } = excalidraw.getAppState() as AppState;
+      press = { sessionId, x: event.clientX, y: event.clientY, selection: { selectedElementIds, selectedGroupIds } };
     };
     const onPointerUp = (event: PointerEvent) => {
       const p = press;
       press = null;
       if (!p || event.button !== 0 || Math.hypot(event.clientX - p.x, event.clientY - p.y) > CLICK_SLOP_PX) return;
-      if (logoUnder(event.clientX, event.clientY) === p.sessionId) jump(p.sessionId);
+      if (logoUnder(event.clientX, event.clientY) !== p.sessionId) return;
+      jump(p.sessionId);
+      // After Excalidraw's own pointerup; not an undo step.
+      requestAnimationFrame(() => excalidraw.updateScene({ appState: p.selection, captureUpdate: CaptureUpdateAction.NEVER }));
     };
     el.addEventListener("dblclick", onDblClick, true);
     el.addEventListener("contextmenu", onContextMenu, true);
