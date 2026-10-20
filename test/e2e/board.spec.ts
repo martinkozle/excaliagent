@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { seedDemo } from "../mock-claude.ts";
 import { startBoard, type Board } from "./board.ts";
+import { scrollToElement } from "./view.ts";
 
 const ID = {
   busy: "11111111-0000-4000-8000-000000000001",
@@ -56,19 +57,7 @@ async function moveCard(page: Page, sessionId: string, x: number, y: number) {
 
 /** Viewport point at the center of a card, scrolled into view. */
 async function cardPoint(page: Page, sessionId: string) {
-  return page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw
-      .getSceneElements()
-      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    // Center it, so Excalidraw's selection panel (top-left) does not cover it.
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    const sx = rect.x + rect.width / 2;
-    const sy = rect.y + rect.height / 2;
-    return { x: (sx + s.scrollX) * s.zoom.value + s.offsetLeft, y: (sy + s.scrollY) * s.zoom.value + s.offsetTop };
-  }, sessionId);
+  return scrollToElement(page, { kind: "card", sessionId });
 }
 
 /** Our panel is fully in the viewport, beside Excalidraw's menu, top-aligned unless clamped. */
@@ -263,7 +252,8 @@ test("an exited session's card turns dormant and comes back live on resume", asy
   board.mock.exit(ID.idleCold);
   await expect.poll(() => card(ID.idleCold)?.backgroundColor).toBe(DORMANT);
   expect(card(ID.idleCold)?.strokeStyle).toBe("dashed");
-  expect(card(ID.idleCold)?.label).toContain("dormant");
+  // The texts follow once the board has looked the exited session up (the restyle comes first).
+  await expect.poll(() => card(ID.idleCold)?.label).toContain("dormant");
 
   board.mock.resume(ID.idleCold);
   await expect.poll(() => card(ID.idleCold)?.strokeStyle).toBe("solid");
@@ -402,15 +392,7 @@ test("a lane is renamed by double-clicking it: its title is bound inside", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);
-  const point = await page.evaluate(async () => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const lane = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "lane");
-    excalidraw.scrollToContent(lane, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const { scrollX, scrollY, zoom, offsetLeft, offsetTop } = excalidraw.getAppState();
-    const x = lane.x + lane.width / 2, y = lane.y + lane.height / 2;
-    return { x: (x + scrollX) * zoom.value + offsetLeft, y: (y + scrollY) * zoom.value + offsetTop };
-  });
+  const point = await scrollToElement(page, { kind: "lane" });
   await page.mouse.dblclick(point.x, point.y);
   const editor = page.locator("textarea.excalidraw-wysiwyg");
   await expect(editor).toHaveValue("To Do");
