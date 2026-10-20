@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3.5 5 57 57">
+  <!-- excaliagent: two session cards on a board, in the board's own colours -->
+  <g stroke-linejoin="round" stroke-linecap="round">
+    <path d="M9 17.5 L37.5 9.5 Q41 8.6 41.9 12 L47 31 Q47.9 34.4 44.5 35.3 L16 43.2 Q12.6 44.1 11.7 40.7 L6.6 21.7 Q5.7 18.4 9 17.5 Z"
+          fill="#b2f2bb" stroke="#2f9e44" stroke-width="3.2"/>
+    <path d="M20.5 24 L54.5 23.2 Q58.2 23.1 58.3 26.8 L58.7 51.6 Q58.8 55.3 55.1 55.4 L21 56.1 Q17.3 56.2 17.2 52.5 L16.8 27.7 Q16.7 24.1 20.5 24 Z"
+          fill="#ffec99" stroke="#f08c00" stroke-width="3.2"/>
+    <path d="M23.5 33 Q35 32.2 47 32.6" fill="none" stroke="#1e1e1e" stroke-width="3.4"/>
+    <path d="M23.8 41.6 Q31 41.1 38.5 41.4" fill="none" stroke="#495057" stroke-width="2.6"/>
+    <path d="M24 48.6 Q29.5 48.3 34.5 48.5" fill="none" stroke="#495057" stroke-width="2.6"/>
+  </g>
+</svg>
