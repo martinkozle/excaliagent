@@ -4,6 +4,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { seedOpenCodeDemo } from "../mock-opencode.ts";
 import { startBoard, type Board } from "./board.ts";
+import { scrollToElement } from "./view.ts";
 
 let LIVE = "";
 let PARKED = "";
@@ -27,26 +28,16 @@ async function open(page: Page) {
 const card = (id: string) => board.savedCards().find((c) => c.sessionId === id);
 
 async function cardPoint(page: Page, sessionId: string) {
-  return page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw
-      .getSceneElements()
-      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    return {
-      x: (rect.x + rect.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft,
-      y: (rect.y + rect.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop,
-    };
-  }, sessionId);
+  return scrollToElement(page, { kind: "card", sessionId });
 }
 
 test("a running OpenCode session spawns a card with the OpenCode logo; status follows the database", async ({ page }) => {
   await open(page);
   await expect.poll(() => board.savedCards().length).toBe(1);
   expect(card(LIVE)?.backgroundColor).toBe(YELLOW);
-  expect(card(LIVE)?.label.replace(/\s+/g, " ")).toContain("Rewrite the getting-started guide");
+  // In Excalifont the title wraps to "Rewrite the / getting-started gui…"; a fit made
+  // before the font is in may still show "guide" whole. Either way it starts like this.
+  expect(card(LIVE)?.label.replace(/\s+/g, " ")).toContain("Rewrite the getting-started");
   expect(card(LIVE)?.label).toContain("docs-site");
   const logo = board.savedElements().find((e) => e.customData?.excaliagent?.kind === "card-logo");
   expect(logo?.fileId).toBe("excaliagent-logo-opencode");
