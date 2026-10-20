@@ -35,7 +35,7 @@ import {
   type MenuItem,
 } from "./board.ts";
 import { CardMenu } from "./CardMenu.tsx";
-import { defaultGen, formatAge } from "./cards.ts";
+import { defaultGen, sessionAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
 import { CharactersIcon, PlusIcon, SessionsIcon, TidyIcon, TopBar, TopButton } from "./TopBar.tsx";
 import { topBarLayout } from "./topbar.ts";
@@ -818,8 +818,7 @@ export function App() {
                       <strong>{s.title ?? s.name ?? s.id.slice(0, 8)}</strong>
                     </div>
                     <div style={{ ...ellipsis, fontSize: 12, opacity: 0.7 }}>
-                      {s.repo}
-                      {s.branch ? ` · ${s.branch}` : ""} · {formatAge(Date.now() - s.lastActivityAt)}
+                      {[s.repo, s.branch, sessionAge(s.lastActivityAt, Date.now())].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                   <button type="button" onClick={() => addFromPicker(s)}>

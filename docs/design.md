@@ -171,8 +171,17 @@ board does not read: rollouts and lock files are enough, and that avoids
 - Thread ids are UUIDv7 (V: `01a15935-e3d1-71c2-…`), so their creation time is
   in the id; the board looks for a thread's file in that day's directory first.
 - The file appears only with the first prompt: a fresh TUI's thread has no
-  rollout yet (V).
-- Each line `{"timestamp", "ordinal", "type", "payload"}` (V). Used:
+  rollout yet, and no `sessions/` directory exists before the first one,
+  while the daemon already holds its lock (V on 0.163.0: TUI opened in a
+  throwaway home, lock present, no rollout until a prompt was sent; S:
+  `deferred_creation` in `rollout/src/recorder.rs`). Such a live card has no
+  line to date it: `lastActivityAt` falls back to the newest line's
+  `timestamp`, else the rollout's mtime, else the thread's creation time from
+  its v7 id. (Before this fallback such a card read "idle 20746d": age since
+  the epoch.)
+- Each line `{"timestamp", "ordinal", "type", "payload"}` (V), `timestamp` an
+  ISO string in UTC with milliseconds, `2026-10-20T16:34:30.112Z` (V on
+  0.163.0; S: `JsonlWriter::write_rollout_item`, `rollout/src/recorder.rs`). Used:
 
 | `type` / `payload.type` | Fields used | Notes |
 |---|---|---|
@@ -180,7 +189,7 @@ board does not read: rollouts and lock files are enough, and that avoids
 | `event_msg` `task_started` | | A turn began → busy (V). Alias `turn_started` (S) |
 | `event_msg` `task_complete`, `turn_aborted` | | Turn over → idle (V: done, and Esc → `turn_aborted` `reason: "interrupted"`). Alias `turn_complete` (S) |
 | `event_msg` `item_completed` with `item.type: "UserMessage"` | `item.content[].text` | First one = fallback title, collapsed and cut to 120 chars (V). Legacy rollouts: `event_msg` `user_message.message` (S) |
-| any line | `timestamp` | Last one = `lastActivityAt` |
+| any line | `timestamp` | Newest one = `lastActivityAt` (fallbacks above) |
 
   Not persisted (S: `rollout/src/policy.rs`): approval requests, questions,
   errors. So a Codex card cannot show "needs input": a turn waiting for
@@ -379,7 +388,10 @@ A card is five app-owned elements in one app group (group id first in
   `{kind:"card-title", sessionId, cardId}`.
 - **details** — Nunito (6) 14 px, `#495057`: `repo · branch` / `status: waitingFor ·
   age` / `cache warm 41m` | `cache cold` / `herdr: ws › tab` | `not in herdr` /
-  `PR #12`. Empty lines dropped. Full width (`TEXT_W` 272 px) at the rect's left
+  `PR #12`. Empty lines dropped. The age is left out (`idle`, not
+  `idle · 20746d`) when `lastActivityAt` is missing (0) or implausible (before
+  2020 or more than a day ahead), whatever the harness (`sessionAge`); the
+  picker does the same. Full width (`TEXT_W` 272 px) at the rect's left
   padding, under the title. `{kind:"card-details", sessionId, cardId}`.
 - **logo** — an image element, 20 px, in the rect's top-right corner, centred
   on the first title line: the harness mark (`src/web/logos.ts`; Claude's from

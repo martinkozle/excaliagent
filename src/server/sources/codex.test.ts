@@ -79,6 +79,24 @@ describe("codex source", () => {
     expect(await src.list()).toMatchObject([{ id: tid(9), cwd: CX_BOB, repo: "other-lib", status: "idle", live: true, pid: 20 }]);
   });
 
+  it("a fresh thread with no rollout yet dates from its v7 id, never from the epoch", async () => {
+    const src = await standard(daemonScan([[9, 5]], [{ pid: 20, ppid: 1, startedAt: 0, argv: [BIN], cwd: CX_BOB }]));
+    expect((await src.list())[0]!.lastActivityAt).toBe(uuidV7Ms(tid(9)));
+  });
+
+  it("a live rollout without line timestamps dates from its mtime", async () => {
+    const mtimeMs = Date.parse("2026-10-20T13:00:00.000Z");
+    home = await seedCodexHome({
+      rollouts: [{ id: tid(7), lines: [{ type: "session_meta", payload: { id: tid(7), cwd: CX_BOB, source: "vscode" } }], mtimeMs }],
+    });
+    const src = createCodexSource({
+      codexDir: home.dir,
+      scan: async () => daemonScan([[7, 1]], [{ pid: 30, ppid: 1, startedAt: 0, argv: [BIN, "resume", tid(7)], cwd: CX_BOB }]),
+      log: silent,
+    });
+    expect((await src.list())[0]).toMatchObject({ id: tid(7), live: true, lastActivityAt: mtimeMs });
+  });
+
   it("no live sessions when liveness is unknown (no /proc)", async () => {
     const src = await standard(undefined);
     expect(await src.list()).toEqual([]);

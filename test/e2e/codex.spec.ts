@@ -2,7 +2,7 @@
 // threads are held by real dummy processes, as the synthetic /proc the server
 // reads says (see test/mock-codex.ts, test/mock-proc.ts). Ids are random per run.
 import { expect, test, type Page } from "@playwright/test";
-import { seedCodexDemo } from "../mock-codex.ts";
+import { mockThreadId, seedCodexDemo } from "../mock-codex.ts";
 import { startBoard, type Board } from "./board.ts";
 
 let BUSY = "";
@@ -114,4 +114,12 @@ test("the picker offers a parked Codex session with its logo; double-click offer
   const point = await cardPoint(page, PARKED);
   await page.mouse.dblclick(point.x, point.y);
   await expect(page.getByText(new RegExp(`codex resume ${PARKED}`))).toBeVisible();
+});
+
+test("a TUI opened but not prompted yet (no rollout) dates from its thread id, not from 1970", async ({ page }) => {
+  const fresh = mockThreadId();
+  board.codex.add({ id: fresh, cwd: "/home/alice/src/scratch", rollout: false });
+  await open(page);
+  await expect.poll(() => card(fresh)?.backgroundColor).toBe(GREY);
+  expect(card(fresh)?.label).toContain("idle · now");
 });

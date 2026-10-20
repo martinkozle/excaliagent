@@ -26,6 +26,12 @@ export interface MockCodexThreadSpec {
   lastMinutesAgo?: number;
   /** false → only a rollout (dormant). Default true. */
   live?: boolean;
+  /**
+   * false → no rollout file at all, only the held lock: a TUI that was opened
+   * but not prompted yet (Codex writes the rollout with the first prompt).
+   * Default true.
+   */
+  rollout?: boolean;
 }
 
 export interface MockCodexThread extends MockCodexThreadSpec {
@@ -50,10 +56,14 @@ export interface MockCodex {
 const pad = (n: number) => String(n).padStart(2, "0");
 const iso = (ms: number) => new Date(ms).toISOString();
 
-/** A UUIDv7-shaped thread id, random per call, so parallel runs never share one. */
-export const mockThreadId = (): string => {
-  const h = randomBytes(8).toString("hex");
-  return `01a0${h.slice(0, 4)}-${h.slice(4, 8)}-7${h.slice(8, 11)}-8${h.slice(11, 14)}-${randomBytes(6).toString("hex")}`;
+/**
+ * A UUIDv7 thread id created `at` (like Codex's, its first 48 bits are the
+ * creation time in ms), random otherwise, so parallel runs never share one.
+ */
+export const mockThreadId = (at = Date.now()): string => {
+  const t = Math.floor(at).toString(16).padStart(12, "0").slice(-12);
+  const h = randomBytes(5).toString("hex");
+  return `${t.slice(0, 8)}-${t.slice(8)}-7${h.slice(0, 3)}-8${h.slice(3, 6)}-${randomBytes(6).toString("hex")}`;
 };
 
 export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(), "excaliagent-mock-codex-"))): MockCodex {
@@ -94,6 +104,10 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
       const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
       const t: MockCodexThread = { ...spec, path: join(day, `rollout-${stamp}-${spec.id}.jsonl`) };
       threads.set(t.id, t);
+      if (t.rollout === false) {
+        if (t.live !== false) start(t);
+        return t;
+      }
       line(t, at - 60_000, "session_meta", {
         session_id: t.id,
         id: t.id,
@@ -124,6 +138,7 @@ export function createMockCodex(proc: MockProc, dir = mkdtempSync(join(tmpdir(),
     },
     setBusy(id, busy) {
       const t = get(id);
+      if (t.rollout === false) throw new Error("a mock thread without a rollout has no turns");
       t.busy = busy;
       line(t, Date.now(), "event_msg", busy ? { type: "task_started", turn_id: "turn-n" } : { type: "task_complete", turn_id: "turn-n" });
     },

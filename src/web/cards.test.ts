@@ -9,6 +9,7 @@ import {
   TITLE_SIZE,
   detailsText,
   formatAge,
+  sessionAge,
   makeCard,
   makeInbox,
   statusStyle,
@@ -63,6 +64,23 @@ describe("formatAge", () => {
     [4 * DAY + HOUR, "4d"],
     [-5 * MIN, "now"],
   ])("%d ms → %s", (ms, out) => expect(formatAge(ms)).toBe(out));
+});
+
+describe("sessionAge", () => {
+  it("formats a plausible activity time", () => {
+    expect(sessionAge(NOW - 2 * MIN, NOW)).toBe("2m");
+    expect(sessionAge(NOW - 400 * DAY, NOW)).toBe("400d");
+    expect(sessionAge(NOW + 5 * MIN, NOW)).toBe("now");
+  });
+  it.each([
+    ["missing (0)", 0],
+    ["negative", -1],
+    ["NaN", Number.NaN],
+    ["the 1970s (seconds read as ms)", 1_792_000_000],
+    ["before 2020", Date.UTC(2019, 11, 31)],
+    ["more than a day ahead", NOW + 2 * DAY],
+    ["microseconds", NOW * 1000],
+  ])("no age when the time is %s", (_name, at) => expect(sessionAge(at, NOW)).toBeUndefined());
 });
 
 /** Monospace test measurer: 10px per char regardless of font → 20 title chars per 204px line, 27 details chars. */
@@ -167,6 +185,11 @@ describe("detailsText", () => {
   it("cache cold, and omitted when unknown", () => {
     expect(lines({ cacheExpiresAt: NOW - MIN })[2]).toBe("cache cold");
     expect(lines({ cacheExpiresAt: 0 })).toEqual(["excaliagent · main", "busy · 2m", "herdr: w7:p1"]);
+  });
+
+  it("no age part when the activity time is missing or implausible", () => {
+    expect(lines({ lastActivityAt: 0, cacheExpiresAt: 0 })).toEqual(["excaliagent · main", "busy", "herdr: w7:p1"]);
+    expect(lines({ live: false, status: "dormant", lastActivityAt: 0, cacheExpiresAt: 0 })).toEqual(["excaliagent · main", "dormant"]);
   });
 
   it("dormant: no herdr line, cache still shown", () => {

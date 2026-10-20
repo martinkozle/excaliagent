@@ -77,7 +77,8 @@ export function codexSession(
     cwd,
     repo: basename(cwd),
     status: live ? (r?.turnOpen ? "busy" : "idle") : "dormant",
-    lastActivityAt: r?.lastTimestamp || Math.floor(opts.mtimeMs ?? 0),
+    // The newest line, else the file's mtime, else (a fresh thread has no rollout yet) the id's creation time.
+    lastActivityAt: r?.lastTimestamp || Math.floor(opts.mtimeMs ?? 0) || (uuidV7Ms(id) ?? 0),
     cacheTtlMs: 0,
     cacheExpiresAt: 0,
     live: !!live,
@@ -243,9 +244,17 @@ export function createCodexSource(opts: CodexSourceOptions = {}): Source {
       if (!CODEX_ID.test(live.threadId)) continue;
       const path = pathById.get(live.threadId);
       const r = path ? await scanner.scan(path) : undefined;
+      const st = path && !r?.lastTimestamp ? await stat(path).catch(() => undefined) : undefined;
       const cwd = r?.cwd ?? live.cwd;
       const name = names.get(live.threadId);
-      out.push(codexSession(live.threadId, r, { live, ...(name ? { name } : {}), ...(cwd ? { git: await git.get(cwd) } : {}) }));
+      out.push(
+        codexSession(live.threadId, r, {
+          live,
+          ...(st ? { mtimeMs: st.mtimeMs } : {}),
+          ...(name ? { name } : {}),
+          ...(cwd ? { git: await git.get(cwd) } : {}),
+        }),
+      );
     }
     return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }

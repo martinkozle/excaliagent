@@ -158,6 +158,19 @@ export function formatAge(ms: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+/** Times before this are not activity times (a missing 0, seconds read as ms, ...). */
+const PLAUSIBLE_FROM = Date.UTC(2020, 0, 1);
+
+/**
+ * The age of an activity time, or undefined when `at` is missing (0),
+ * implausible (before 2020, more than a day ahead) or not a number: a card
+ * then shows no age rather than "20746d" since the epoch.
+ */
+export function sessionAge(at: number, now: number): string | undefined {
+  if (!Number.isFinite(at) || at < PLAUSIBLE_FROM || at > now + 86_400_000) return undefined;
+  return formatAge(now - at);
+}
+
 /**
  * "PR #N" for GitHub `/pull/N` and Bitbucket `/pull-requests/N`, "MR !N" for
  * GitLab `/-/merge_requests/N`, else the URL without its scheme.
@@ -231,13 +244,14 @@ function herdrLine(s: Session): string {
 /** Up to five lines (docs/design.md "Cards"), empty ones dropped. */
 export function detailsText(s: Session, now: number, measure: Measure = estimateMeasure): string {
   const dormant = isDormant(s);
-  const age = formatAge(now - s.lastActivityAt);
+  const age = sessionAge(s.lastActivityAt, now);
+  const withAge = (state: string) => (age ? `${state} · ${age}` : state);
   const where = [s.repo, s.branch].filter(Boolean).join(" · ");
   let state: string;
-  if (dormant) state = `${s.status === "exited" ? "exited" : "dormant"} · ${age}`;
+  if (dormant) state = withAge(s.status === "exited" ? "exited" : "dormant");
   else {
     const st = s.status.replace(/_/g, " ");
-    state = `${s.waitingFor ? `${st}: ${s.waitingFor}` : st} · ${age}`;
+    state = withAge(s.waitingFor ? `${st}: ${s.waitingFor}` : st);
   }
   let cache = "";
   if (s.cacheExpiresAt !== 0) {
