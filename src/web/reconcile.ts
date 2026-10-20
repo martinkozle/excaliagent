@@ -1,7 +1,10 @@
 // The single writer (docs/design.md "What the app may change"): sessions + scene → new scene.
 //
 // Pure. Never touches elements the app did not create. On app-owned cards:
-// - rect: only colours and `link` (the session's last PR url) change. Exception, migration of an old bound-label card:
+// - rect: only colours and `link` (the session's last PR url) change, plus its
+//   height (and customData.appHeight) to fit the title's line count, but only
+//   while its height is still the `appHeight` the app last set: a card the user
+//   resized, or one from before fitting, keeps its height. Exception, migration of an old bound-label card:
 //   a fresh app group id is prepended to its groupIds, the bound text entry is
 //   removed from boundElements, and its height grows (never shrinks) to CARD_H.
 // - title/details texts: only text/originalText and their width/height (content
@@ -28,6 +31,7 @@ import type {
 import type { Session } from "../shared/types.ts";
 import {
   CARD_H,
+  cardHeight,
   cardMeta,
   cardPartMeta,
   detailsText,
@@ -216,6 +220,17 @@ function reconcileCards(
     for (const k of ["backgroundColor", "strokeColor", "strokeStyle", "fillStyle"] as const)
       if (rect0[k] !== style[k]) Object.assign(rectChanges, { [k]: style[k] });
     if (s && rect0.link !== prLink(s)) Object.assign(rectChanges, { link: prLink(s) });
+
+    // Height fits the title's line count, but only while the rect still has the
+    // height the app gave it (`appHeight`): a card the user resized is left alone.
+    if (typeof meta.appHeight === "number" && Math.abs(rect0.height - meta.appHeight) < 0.5) {
+      const title = s
+        ? titleText(s, measure)
+        : (assigned.get(`${rect0.id}|card-title`) as ExcalidrawTextElement | undefined)?.originalText;
+      const height = title === undefined ? rect0.height : cardHeight(lineCount(title));
+      if (height !== rect0.height)
+        Object.assign(rectChanges, { height, customData: { ...rect0.customData, excaliagent: { ...meta, appHeight: height } } });
+    }
 
     // Old card: bound text label → migrate.
     const legacyId = rect0.boundElements?.find((b) => b.type === "text")?.id;

@@ -37,6 +37,8 @@ export interface MockClaude {
   sessions: Map<string, MockSession>;
   add(spec: MockSessionSpec): MockSession;
   setStatus(id: string, status: MockStatus, waitingFor?: string): void;
+  /** Append a new ai-title (Claude Code re-titles sessions as they go). */
+  setTitle(id: string, title: string): void;
   /** Append an assistant turn now (refreshes cache warmth). */
   turn(id: string, cache?: "1h" | "5m"): void;
   /** Kill the process and remove its registry file, like a clean exit. */
@@ -162,6 +164,12 @@ export function createMockClaude(dir = mkdtempSync(join(tmpdir(), "excaliagent-m
       s.status = status;
       s.waitingFor = waitingFor;
       writeRegistry(s);
+    },
+    setTitle(id, title) {
+      const s = get(id);
+      s.title = title;
+      line(s, { type: "ai-title", aiTitle: title, sessionId: s.id });
+      writeRegistry(s); // a registry change makes the server re-read now, not on its next poll
     },
     turn(id, cache = "1h") {
       assistant(get(id), Date.now(), cache);

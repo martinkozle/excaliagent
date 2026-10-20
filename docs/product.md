@@ -56,8 +56,10 @@ OpenCode) are a later adapter.
   herdr"), PR link, and the harness logo in the corner (Claude today), so
   cards of different agents tell apart.
 - Colour and text update within 2 s of a change.
-- The app never changes position, size, rotation, grouping, frame membership,
-  or any element it did not create.
+- A card is as tall as its title needs (one or two lines) and grows or shrinks
+  when the title re-wraps, until I resize it myself; then its size is mine.
+- The app never changes position, size (beyond that card height), rotation,
+  grouping, frame membership, or any element it did not create.
 
 ### S3. Jump to the session (done)
 

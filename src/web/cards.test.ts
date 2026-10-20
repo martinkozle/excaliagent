@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CARD_H,
   CARD_W,
+  cardHeight,
   DETAIL_LINES,
   PAD,
   TITLE_GAP,
@@ -192,7 +193,7 @@ describe("makeCard", () => {
       x: 60,
       y: 100,
       width: CARD_W,
-      height: CARD_H,
+      height: cardHeight(1),
       backgroundColor: "#ffec99",
       strokeColor: "#f08c00",
       fillStyle: "solid",
@@ -229,7 +230,28 @@ describe("makeCard", () => {
       customData: { excaliagent: { kind: "card-details", sessionId: "s1", cardId: rect.id } },
     });
     expect(details.height).toBeCloseTo(5 * 14 * 1.35);
-    expect(rect.y + PAD + 2 * TITLE_SIZE * TITLE_LH + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD).toBeLessThanOrEqual(rect.y + rect.height);
+    // A one-line title: the card fits it, and remembers the height it was given.
+    expect(title.text.split("\n")).toHaveLength(1);
+    expect(rect.height).toBe(cardHeight(1));
+    expect(rect.customData!.excaliagent.appHeight).toBe(rect.height);
+    expect(rect.y + PAD + 1 * TITLE_SIZE * TITLE_LH + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD).toBeLessThanOrEqual(rect.y + rect.height);
+  });
+
+  it("cardHeight fits one or two title lines above five detail lines; CARD_H is the two-line height", () => {
+    expect(cardHeight(2)).toBe(CARD_H);
+    expect(cardHeight(1)).toBe(Math.ceil(PAD + TITLE_H + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD));
+    expect(cardHeight(1)).toBe(CARD_H - TITLE_H);
+    expect(cardHeight(0)).toBe(cardHeight(1));
+    expect(cardHeight(3)).toBe(CARD_H);
+  });
+
+  it("a two-line title gets the full height, remembered as the app-set height", () => {
+    const s = session({ title: "A rather long title that certainly wraps onto a second line" });
+    const [rect, title, details] = makeCard(s, { x: 0, y: 0 }, testGen(), NOW);
+    expect(title.text.split("\n")).toHaveLength(2);
+    expect(rect.height).toBe(CARD_H);
+    expect(rect.customData!.excaliagent.appHeight).toBe(CARD_H);
+    expect(details.y + details.height + PAD).toBeLessThanOrEqual(rect.y + rect.height);
   });
 });
 

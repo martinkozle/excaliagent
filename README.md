@@ -6,8 +6,9 @@ A spatial scratchboard for your Claude Code sessions, on an Excalidraw canvas.
 
 Every session is a card. You drag cards wherever they make sense to you (parked,
 blocked on a colleague, come back to, done) and draw anything around them. The
-app keeps each card's **color and label** in sync with the session and never
-moves, resizes, or edits anything else.
+app keeps each card's **color and label** in sync with the session (and its
+height fitted to a one- or two-line title, until you resize the card yourself)
+and never moves, resizes, or edits anything else.
 
 ```
 Fix flaky checkout test       ✳   ← title (handwritten, larger), harness logo

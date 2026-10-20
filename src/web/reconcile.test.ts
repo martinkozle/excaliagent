@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ExcalidrawElement, ExcalidrawImageElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
 import { reconcile } from "./reconcile.ts";
-import { AREA_HEADER, CARD_H, CARD_W, LOGO_SIZE, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
+import { AREA_HEADER, CARD_H, CARD_W, cardHeight, LOGO_SIZE, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
 import { LOGOS } from "./logos.ts";
 import { DAY, NOW, session, testGen } from "./__fixtures__/helpers.ts";
 import userDrawingsJson from "./__fixtures__/user-drawings.json" with { type: "json" };
@@ -124,6 +124,65 @@ describe("reconcile", () => {
 
     const c = reconcile([session({ title: "short" })], b.elements, NOW, gen, { measure: mono });
     expect(partOf(c.elements, card, "card-details").y).toBe(card.y + PAD + TITLE_H + TITLE_GAP);
+  });
+
+  describe("card height follows the title's line count (issue #8)", () => {
+    const mono: Measure = (t) => t.length * 10;
+    const LONG = "Node.js first slices setup on NixOS";
+    const heightOf = (els: readonly ExcalidrawElement[], id: string) => els.find((e) => e.id === id)!;
+
+    it("grows a card the app sized when the title wraps, shrinks it back; idempotent, position kept", () => {
+      const gen = testGen();
+      const a = reconcile([session({ title: "short" })], [], NOW, gen, { measure: mono });
+      const card0 = cardsOf(a.elements)[0]!;
+      expect(card0.height).toBe(cardHeight(1));
+      const moved = moveGroup(a.elements, card0.groupIds[0]!, 500, 250);
+      const at = heightOf(moved, card0.id);
+
+      const b = reconcile([session({ title: LONG })], moved, NOW, gen, { measure: mono });
+      const grown = heightOf(b.elements, card0.id);
+      expect(grown).toMatchObject({ x: at.x, y: at.y, width: at.width, height: CARD_H, angle: at.angle, groupIds: at.groupIds });
+      expect(grown.customData!.excaliagent.appHeight).toBe(CARD_H);
+      expect(b.touchedIds).toContain(card0.id);
+      expect(reconcile([session({ title: LONG })], b.elements, NOW, gen, { measure: mono }).changed).toBe(false);
+
+      const c = reconcile([session({ title: "short" })], b.elements, NOW, gen, { measure: mono });
+      expect(heightOf(c.elements, card0.id)).toMatchObject({ x: at.x, y: at.y, height: cardHeight(1) });
+    });
+
+    it("never resizes a card the user resized (height differs from the app-set one)", () => {
+      const gen = testGen();
+      const a = reconcile([session({ title: "short" })], [], NOW, gen, { measure: mono });
+      const card0 = cardsOf(a.elements)[0]!;
+      for (const h of [400, cardHeight(1) - 30]) {
+        const resized = a.elements.map((e) => (e.id === card0.id ? { ...e, height: h, version: e.version + 1 } : e));
+        const b = reconcile([session({ title: LONG })], resized, NOW, gen, { measure: mono });
+        expect(heightOf(b.elements, card0.id).height).toBe(h);
+        expect(heightOf(b.elements, card0.id).customData!.excaliagent.appHeight).toBe(cardHeight(1));
+      }
+    });
+
+    it("leaves cards from before fitting (no app-set height) at their height", () => {
+      const gen = testGen();
+      const a = reconcile([session({ title: "short" })], [], NOW, gen, { measure: mono });
+      const card0 = cardsOf(a.elements)[0]!;
+      const old = a.elements.map((e) => {
+        if (e.id !== card0.id) return e;
+        const { appHeight: _, ...meta } = e.customData!.excaliagent;
+        return { ...e, height: CARD_H, customData: { excaliagent: meta } };
+      });
+      const r = reconcile([session({ title: "short" })], old, NOW, gen, { measure: mono });
+      expect(r.changed).toBe(false);
+      expect(reconcile([session({ title: LONG })], old, NOW, gen, { measure: mono }).elements.find((e) => e.id === card0.id)!.height).toBe(CARD_H);
+    });
+
+    it("a card whose session vanished keeps fitting its current title", () => {
+      const gen = testGen();
+      const a = reconcile([session({ title: LONG })], [], NOW, gen, { measure: mono });
+      const card0 = cardsOf(a.elements)[0]!;
+      expect(card0.height).toBe(CARD_H);
+      expect(reconcile([], a.elements, NOW, gen, { measure: mono }).elements.find((e) => e.id === card0.id)!.height).toBe(CARD_H);
+    });
   });
 
   it("uses the injected measurer for wrapping and box widths", () => {

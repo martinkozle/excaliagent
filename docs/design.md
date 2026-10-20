@@ -233,8 +233,10 @@ registry plus file watching is enough, and "no setup" is a goal.
 A card is four app-owned elements in one app group (group id first in
 `groupIds`, i.e. innermost):
 
-- **rect** — `customData.excaliagent = {kind:"card", source, sessionId}`, 300 wide,
-  sized for 2 title lines + 5 detail lines, `fillStyle: "solid"` always,
+- **rect** — `customData.excaliagent = {kind:"card", source, sessionId, appHeight}`,
+  300 wide, as tall as its title needs: room for 1 or 2 title lines + 5 detail
+  lines (`cardHeight`; 156 or 181 px). `appHeight` is the height the app last
+  gave it (see "What the app may change"). `fillStyle: "solid"` always,
   `link` = last PR URL (Excalidraw shows its link icon).
 - **title** — Excalifont (5) 20 px, `#1e1e1e`, word-wrapped to 2 lines of
   `TITLE_W` (short of the logo), the second cut with "…".
@@ -272,7 +274,8 @@ re-fitted, so a late font load cannot leave clipped text.
   it (`{kind:"inbox-label"}`, see titles below). New boards get a tall one at
   (40, 80): 660×1664, i.e. 2 cards wide × 8 rows (20 px gaps) under a 56 px
   header (`AREA_HEADER`). The user moves and resizes it. New cards take the
-  first free grid slot inside its current bounds, below the header (`nextSlot`:
+  first free grid slot inside its current bounds, below the header (`nextSlot`;
+  rows are as tall as a two-line card, so a card can grow into its row:
   columns = what fits the width, row-major, skipping any slot that overlaps a
   non-deleted card); when full, rows continue below it. Existing
   inboxes keep whatever size they have (older boards: 980×824, 3 columns).
@@ -304,10 +307,15 @@ the same array.
 - Live session without a card → spawn in the inbox (creating the inbox, and on
   a board with no lanes the starter lanes, if missing). Picker adds (`opts.add`) spawn even when dormant. Dormant session
   without a card → nothing. Soft-deleted cards count as no card.
-- Existing card → rect: only colours and `link`. Texts: only
+- Existing card → rect: only colours, `link`, and its height fitted to the
+  title's line count (`cardHeight`, growing or shrinking downwards from the
+  same top edge) with `appHeight` updated to match. The height is fitted only
+  while the rect's height still equals `appHeight` (±0.5 px): a card the user
+  resized (or scaled) differs and keeps its height from then on, as does a card
+  from before fitting (no `appHeight`). Texts: only
   `text`/`originalText` and their box size; the details text is re-placed under
-  the title when the title's line count changes. Never x, y, width, height,
-  angle, groupIds or frameId of anything else.
+  the title when the title's line count changes. Never x, y, width,
+  angle, groupIds or frameId of anything, nor the height of anything else.
 - Card whose session is unknown → restyled dormant; texts and link left alone.
 - `continuedIn = X` → the card is retargeted to X (rect and texts' `sessionId`)
   before spawning, following chains, unless a hop already has a card.
@@ -319,7 +327,8 @@ the same array.
 - **Migration** of old cards (rect + bound 5-line label): the bound text is
   soft-deleted, a fresh group id is prepended to the rect's `groupIds`, the
   rect grows to the new height if shorter, and title/details are created at the
-  rect's current position. This is the only time `groupIds` or height change.
+  rect's current position. This is the only time `groupIds` change; such a
+  card has no `appHeight`, so its height is not fitted afterwards.
 - App patches use `CaptureUpdateAction.NEVER`: undo only undoes the user's edits.
 
 ### Interactions
