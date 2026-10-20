@@ -347,7 +347,9 @@ function reconcileCards(
       touched.push(...made.map((e) => e.id));
       inbox = made.find(isInbox)!;
     }
-    const card = makeCard(byId.get(s.id) ?? s, nextSlot(inbox, result), gen, now, measure);
+    const session = byId.get(s.id) ?? s;
+    const height = cardHeight(lineCount(titleText(session, measure)));
+    const card = makeCard(session, nextSlot(inbox, result, height), gen, now, measure);
     result.push(...card);
     touched.push(...card.map((e) => e.id));
     carded.add(s.id);

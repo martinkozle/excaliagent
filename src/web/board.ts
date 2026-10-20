@@ -58,7 +58,35 @@ export type MenuItem =
   | { action: "resume"; label: string }
   | { action: "copy"; label: string; text: string }
   | { action: "open"; label: string; url: string }
-  | { action: "end"; label: string };
+  | { action: "end"; label: string }
+  | { action: "tidy"; label: string };
+
+/** Our lane section of the right-click menu. */
+export function laneMenuItems(): MenuItem[] {
+  return [{ action: "tidy", label: "Tidy cards" }];
+}
+
+/** The parts of `Storage` the settings use; absent when the browser blocks it. */
+export type SettingsStore = Pick<Storage, "getItem" | "setItem">;
+const LANE_DROP_KEY = "excaliagent.laneDrop";
+
+/** "Drop on a lane title to stack": on unless turned off in this browser. Unreadable storage → on. */
+export function readLaneDrop(store: SettingsStore | undefined): boolean {
+  try {
+    return store?.getItem(LANE_DROP_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+/** Remember the setting per browser; a storage that throws (private mode, blocked) is ignored. */
+export function writeLaneDrop(on: boolean, store: SettingsStore | undefined): void {
+  try {
+    store?.setItem(LANE_DROP_KEY, on ? "on" : "off");
+  } catch {
+    // not remembered; the toggle still applies until the page reloads
+  }
+}
 
 /** Our card section of the right-click menu. `s` undefined = session not known (yet). */
 export function menuItems(sessionId: string, s: Session | undefined): MenuItem[] {

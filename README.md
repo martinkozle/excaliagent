@@ -8,7 +8,8 @@ Every session is a card. You drag cards wherever they make sense to you (parked,
 blocked on a colleague, come back to, done) and draw anything around them. The
 app keeps each card's **color and label** in sync with the session (and its
 height fitted to a one- or two-line title, until you resize the card yourself)
-and never moves, resizes, or edits anything else.
+and never moves, resizes, or edits anything else on its own; cards move only
+when you drop one on a lane title or ask for a tidy-up.
 
 ```
 Fix flaky checkout test       ✳   ← title (handwritten, larger), harness logo
@@ -46,7 +47,21 @@ bookmark. Running it again while a board is up just opens that board.
   rename (double-click) or delete. **+ Lane** (top right) adds one more at the
   right end. On an older
   board, add the whole set from the main menu: *Add starter lanes*.
-- **Dormant sessions** are added from the **Sessions** panel (top right).
+- **Line cards up in a lane**: while you drag a card, every lane title shows a
+  faint *drop to stack* hint; drop the card on one (it lights up) and the card
+  goes into the lane's column, below the lowest card there.
+  Dropped anywhere else, a card stays exactly where you put it. Right-click a
+  lane → *Tidy cards* stacks its cards in one column, top to bottom (on the
+  inbox it packs its columns). **Tidy all** (top right, or the main menu)
+  does every lane and the inbox at once. Stacked cards are always 20 px
+  apart; if a title later grows a second line, its card may overlap the one
+  below a little until you tidy again. Cards
+  that are locked, rotated, attached to an arrow or grouped with something
+  else stay put; the column goes around them. Ctrl+Z undoes a tidy (or Tidy
+  all) in one step and a drop in two (the snap, then the drag). Turn the
+  title drop off in the main menu (*Drop on lane title stacks cards*).
+- **Dormant sessions** are added from the **Sessions** panel (top right). On a
+  narrow window the top-right buttons show only their icons; hover for the name.
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
   Sway, macOS). A dormant session is resumed with `claude --resume` in a new herdr

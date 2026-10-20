@@ -26,7 +26,8 @@ OpenCode) are a later adapter.
    prompt-cache warmth, PR link, and where it runs in herdr.
 3. One gesture jumps to the session; one gesture resumes a dormant one.
 4. Dormant sessions are first-class: they stay on the board without a pane.
-5. My layout and my notes are never modified by the app.
+5. My layout and my notes are never modified by the app on its own. Cards
+   move only when I ask, with a gesture aimed at that lane (S7).
 6. Zero setup: `npx excaliagent`, no hooks installed, no config file.
 
 ## Non-goals
@@ -59,7 +60,8 @@ OpenCode) are a later adapter.
 - A card is as tall as its title needs (one or two lines) and grows or shrinks
   when the title re-wraps, until I resize it myself; then its size is mine.
 - The app never changes position, size (beyond that card height), rotation,
-  grouping, frame membership, or any element it did not create.
+  grouping, frame membership, or any element it did not create. The only
+  exception is S7, and only as the direct result of my own gesture.
 
 ### S3. Jump to the session (done)
 
@@ -85,13 +87,44 @@ OpenCode) are a later adapter.
 ### S5. Keep my layout (done)
 
 - The scene is saved locally and restored on restart; saves are atomic.
-- The inbox is a rectangle I can move and resize; new cards land inside it.
+- The inbox is a rectangle I can move and resize; new cards land inside it,
+  in columns, evenly spaced below the card above.
 - Images I paste onto the board are kept too.
 - A new board comes with Kanban lanes beside the inbox; **+ Lane** adds more.
+- The board's own buttons (top right) fit at every window width: on a narrow
+  window they shrink to icons with tooltips, and below that move into a
+  column at the right edge; their labels never overlap.
 
 ### S6. Publish (in progress)
 
 - Public GitHub repo, MIT, `npx excaliagent` from npm, README with privacy notes.
+
+### S7. Line cards up in a lane (done)
+
+Free placement stays the default: nothing snaps on its own.
+
+- As soon as I start dragging a single card, every lane title in view shows
+  a faint "drop to stack" hint, so I can see where to drop. Over a lane's
+  title band, that band lights up and an outline shows where the card will
+  land; the hints vanish when I let go. Dropping it there puts it in the
+  lane's column, below the lowest card already in the lane. A full lane is not
+  grown; the card goes below it. Dropping anywhere else leaves the card exactly
+  where I let go.
+- Right-click a lane → **Tidy cards** stacks the lane's cards in one column
+  under its title, in their current top-to-bottom order. On the inbox it
+  packs the cards into the inbox's columns, in reading order.
+- **Tidy all** (top right, beside **+ Lane**, and in the main menu) tidies
+  every lane and the inbox at once.
+- Stacked cards are always the same distance apart, whether a card has one
+  title line or two. If a title later grows a line, that card may overlap
+  the one below a little; tidying again fixes it (nothing moves on its own).
+- Cards that are locked, rotated, attached to an arrow, or grouped with
+  something else are never moved; the column flows around them.
+- Undo: a tidy (also Tidy all) is one step; a drop is two (first the snap, back to where I let
+  go; then the drag itself). Lanes themselves are never moved or resized.
+- Right-clicking a note or arrow of mine inside a lane does not offer Tidy.
+- A main-menu toggle turns the drop zone off; the choice is remembered in this
+  browser.
 
 ## Success criteria
 

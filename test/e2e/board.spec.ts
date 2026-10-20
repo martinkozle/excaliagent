@@ -405,7 +405,7 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);
   const last = lanes().at(-1)!;
-  await page.getByRole("button", { name: "+ Lane" }).click();
+  await page.getByRole("button", { name: "Add lane" }).click();
   await expect.poll(() => lanes().length).toBe(9);
   expect(lanes().at(-1)).toMatchObject({ x: last.x + last.width + 40, y: last.y, width: last.width, height: last.height });
   expect(laneTitles().at(-1)).toBe("New lane");
@@ -414,10 +414,71 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
   await expect.poll(() => lanes().length).toBe(8);
 });
 
+/**
+ * Our top-right buttons at the current window width: each is fully on screen
+ * with a visible icon; a shown label sits on one line inside its button; no
+ * button overlaps another, Excalidraw's toolbar, its Library button or its
+ * mobile tool column. Returns how many labels are shown.
+ */
+async function expectTopButtonsClean(page: Page): Promise<number> {
+  const buttons = page.locator(".excaliagent-top .sidebar-trigger");
+  await expect(buttons).toHaveCount(3);
+  const vp = page.viewportSize()!;
+  const boxes = [];
+  let labels = 0;
+  for (const b of await buttons.all()) {
+    const box = (await b.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vp.width + 0.5);
+    const icon = (await b.locator("svg").boundingBox())!;
+    expect(icon.width).toBeGreaterThan(10);
+    expect(icon.x).toBeGreaterThanOrEqual(box.x);
+    expect(icon.x + icon.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    const label = b.locator(".sidebar-trigger__label");
+    if (await label.isVisible()) {
+      labels++;
+      const l = (await label.boundingBox())!;
+      expect(l.height).toBeLessThan(20); // one line
+      expect(l.x).toBeGreaterThanOrEqual(icon.x + icon.width); // beside the icon, not over it
+      expect(l.x + l.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    }
+    boxes.push(box);
+  }
+  for (const sel of [".App-toolbar", ".default-sidebar-trigger", ".mobile-misc-tools-container"]) {
+    const el = page.locator(`.excalidraw ${sel}`).first();
+    if (await el.isVisible()) boxes.push((await el.boundingBox())!);
+  }
+  // Pairs with at least one of ours (Library sits inside the mobile column).
+  for (let i = 0; i < 3; i++)
+    for (let j = i + 1; j < boxes.length; j++) {
+      const [a, b] = [boxes[i]!, boxes[j]!];
+      const overlap = a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
+      expect(overlap, `boxes ${i} and ${j} overlap at ${vp.width}px`).toBe(false);
+    }
+  return labels;
+}
+
+test("the top-right buttons never overlap: labels collapse into tooltips on narrow windows", async ({ page }) => {
+  await open(page);
+  const shown: Record<number, number> = {};
+  for (const width of [1400, 1160, 1000, 935, 800, 600, 400]) {
+    await page.setViewportSize({ width, height: 800 });
+    // Excalidraw lays out for the size it has in its state (a later commit under load).
+    await expect.poll(() => page.evaluate(() => (window as any).__excaliagent.excalidraw.getAppState().width)).toBe(width);
+    shown[width] = await expectTopButtonsClean(page);
+  }
+  expect(shown).toEqual({ 1400: 3, 1160: 3, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
+  // Icon-only buttons keep their names and tooltips, and still work.
+  await expect(page.getByRole("button", { name: "Add lane" })).toHaveAttribute("title", "Add a lane at the right end");
+  await page.getByRole("button", { name: "Add lane" }).click();
+  await expect.poll(() => lanes().length).toBe(9);
+});
+
 test("Reset the canvas starts a fresh board at once: inbox, lanes, live cards", async ({ page }) => {
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);
-  await page.getByRole("button", { name: "+ Lane" }).click();
+  await page.getByRole("button", { name: "Add lane" }).click();
   await expect.poll(() => lanes().length).toBe(9);
   await page.getByTestId("main-menu-trigger").click();
   await page.getByText("Reset the canvas").click();
@@ -426,6 +487,243 @@ test("Reset the canvas starts a fresh board at once: inbox, lanes, live cards", 
   await expect.poll(() => board.savedCards().length, { timeout: 5000 }).toBe(5);
 });
 
+
+test.describe("lining cards up in a lane", () => {
+  /** View the inbox and the first lanes at zoom 1, nothing selected. */
+  async function frame(page: Page) {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await open(page);
+    await expect.poll(() => board.savedCards().length).toBe(5);
+    await expect.poll(() => lanes().length).toBe(8);
+    await page.evaluate(() =>
+      (window as any).__excaliagent.excalidraw.updateScene({
+        appState: { scrollX: 0, scrollY: 0, zoom: { value: 1 }, selectedElementIds: {}, selectedGroupIds: {} },
+      }),
+    );
+    // Points are computed from the app state: wait until it has the view (a later commit under load).
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const s = (window as any).__excaliagent.excalidraw.getAppState();
+          return [s.scrollX, s.scrollY, s.zoom.value, Object.keys(s.selectedElementIds).length];
+        }),
+      )
+      .toEqual([0, 0, 1, 0]);
+  }
+  /** Viewport point of a scene point. */
+  const toView = (page: Page, x: number, y: number) =>
+    page.evaluate(
+      ({ x, y }) => {
+        const s = (window as any).__excaliagent.excalidraw.getAppState();
+        return { x: (x + s.scrollX) * s.zoom.value + s.offsetLeft, y: (y + s.scrollY) * s.zoom.value + s.offsetTop };
+      },
+      { x, y },
+    );
+  const todo = () => lanes()[0]!;
+  /** Drag with the real mouse from one scene point to another. */
+  async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, beforeUp?: () => Promise<void>) {
+    const a = await toView(page, from.x, from.y);
+    const b = await toView(page, to.x, to.y);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move((a.x + b.x) / 2, (a.y + b.y) / 2, { steps: 5 });
+    await page.mouse.move(b.x, b.y, { steps: 10 });
+    await beforeUp?.();
+    await page.mouse.up();
+  }
+  const centre = (id: string) => {
+    const c = card(id)!;
+    return { x: c.x + c.width / 2, y: c.y + 40 };
+  };
+
+  test("dropping a card on a lane's title stacks it below the lowest card in the lane, undoably", async ({ page }) => {
+    await frame(page);
+    const lane = todo();
+    await moveCard(page, ID.busy, lane.x + 20, lane.y + 300);
+    await expect.poll(() => card(ID.busy)?.y).toBe(lane.y + 300);
+    const busy = card(ID.busy)!;
+    const start = card(ID.needsUser)!;
+
+    await drag(page, centre(ID.needsUser), { x: lane.x + lane.width / 2, y: lane.y + 25 }, async () => {
+      // Portalled into Excalidraw's root, in the theme's primary colour.
+      const zone = page.locator(".excalidraw .excaliagent-lane-drop-zone");
+      await expect(zone).toBeVisible();
+      const colours = await zone.evaluate((el) => ({
+        border: getComputedStyle(el).borderTopColor,
+        primary: getComputedStyle(el).getPropertyValue("--color-primary").trim(),
+      }));
+      expect(colours.primary).not.toBe("");
+      const probe = await page.evaluate((c) => {
+        const d = document.createElement("div");
+        d.style.color = c;
+        document.body.append(d);
+        const v = getComputedStyle(d).color;
+        d.remove();
+        return v;
+      }, colours.primary);
+      expect(colours.border).toBe(probe);
+      await expect(page.locator(".excaliagent-lane-drop-slot")).toBeVisible();
+      await page.screenshot({ path: "test-results/board-lane-drop.png" });
+    });
+    await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
+    // GAP (20) below the actual bottom of the lowest card, one title line or two.
+    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + busy.height + 20 });
+    // The card's texts came along.
+    const parts = board.savedElements().filter((e) => e.customData?.excaliagent?.cardId === card(ID.needsUser)!.id);
+    expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 14 });
+    // Lanes are never resized or moved.
+    expect(todo()).toMatchObject({ x: lane.x, y: lane.y, width: lane.width, height: lane.height });
+
+    // Undo is two steps: first the snap (back to where it was dropped, on the
+    // lane title), then Excalidraw's own drag (back into the inbox).
+    await page.locator(".excalidraw").focus();
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => card(ID.needsUser)?.y).toBeLessThan(lane.y + 56);
+    expect(card(ID.needsUser)?.x).not.toBe(start.x);
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: start.x, y: start.y });
+  });
+
+  test("a drop elsewhere in a lane leaves the card where it was dropped", async ({ page }) => {
+    await frame(page);
+    const lane = todo();
+    const from = centre(ID.needsUser);
+    const before = card(ID.needsUser)!;
+    await drag(page, from, { x: lane.x + lane.width / 2, y: lane.y + 400 }, async () => {
+      await expect(page.locator(".excaliagent-lane-hint").first()).toBeVisible();
+      await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
+    });
+    await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
+    // The drop is saved after a debounce; a save from mid-drag may come first.
+    await expect.poll(() => card(ID.needsUser)?.x).toBeCloseTo(before.x + (lane.x + lane.width / 2 - from.x), 0);
+  });
+
+  test("as soon as a card is dragged, every visible lane title shows a faint hint; gone after the drop", async ({ page }) => {
+    await frame(page);
+    const vp = page.viewportSize()!;
+    // At zoom 1 and scroll 0, scene x is viewport x: the lanes whose title band is on screen.
+    const visible = lanes().filter((l) => l.x < vp.width && l.x + l.width > 0).length;
+    expect(visible).toBeGreaterThanOrEqual(2);
+    const from = centre(ID.needsUser);
+    const a = await toView(page, from.x, from.y);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    // A short drag inside the inbox: nowhere near a lane title yet.
+    await page.mouse.move(a.x - 30, a.y + 40, { steps: 5 });
+    const hints = page.locator(".excalidraw .excaliagent-lane-hint");
+    await expect(hints).toHaveCount(visible);
+    await expect(hints.first()).toContainText("drop to stack");
+    await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
+    // Over one band: that one gets the strong highlight, the others stay faint.
+    const lane = todo();
+    const band = await toView(page, lane.x + lane.width / 2, lane.y + 25);
+    await page.mouse.move(band.x, band.y, { steps: 10 });
+    await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(1);
+    await expect(hints).toHaveCount(visible - 1);
+    await page.screenshot({ path: "test-results/board-lane-hints.png" });
+    // Back off the band and let go: no drop, and every hint is gone.
+    await page.mouse.move(a.x - 30, a.y + 40, { steps: 10 });
+    await expect(page.locator(".excaliagent-lane-drop-zone")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
+  });
+
+  test("Tidy cards (right-click a lane) stacks its cards in their vertical order, undoably", async ({ page }) => {
+    await frame(page);
+    const lane = todo();
+    await moveCard(page, ID.busy, lane.x + 5, lane.y + 700);
+    await moveCard(page, ID.idleWarm, lane.x + 35, lane.y + 250);
+    await expect.poll(() => card(ID.idleWarm)?.y).toBe(lane.y + 250);
+
+    const point = await toView(page, lane.x + lane.width / 2, lane.y + 520);
+    await page.mouse.click(point.x, point.y, { button: "right" });
+    const ours = page.locator(".excaliagent-menu");
+    await expect(ours.getByRole("menuitem")).toHaveText(["Tidy cards"]);
+    await ours.getByRole("menuitem", { name: "Tidy cards" }).click();
+    await expect(ours).toHaveCount(0);
+
+    const top = lane.y + 56;
+    await expect.poll(() => card(ID.idleWarm)).toMatchObject({ x: lane.x + 20, y: top });
+    const warm = card(ID.idleWarm)!;
+    // Always GAP (20) below the actual bottom of the card above.
+    expect(card(ID.busy)).toMatchObject({ x: lane.x + 20, y: top + warm.height + 20 });
+
+    await page.locator(".excalidraw").focus();
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => card(ID.busy)).toMatchObject({ x: lane.x + 5, y: lane.y + 700 });
+
+    // A user's note inside the lane is not the lane: no Tidy cards there.
+    await page.keyboard.press("Escape");
+    await page.evaluate((l) => {
+      const { excalidraw } = (window as any).__excaliagent;
+      const els = excalidraw.getSceneElementsIncludingDeleted();
+      const note = { ...l, id: "user-note", x: l.x + 60, y: l.y + 620, width: 200, height: 120, backgroundColor: "#fff3bf", customData: undefined, boundElements: null };
+      excalidraw.updateScene({ elements: [...els, note], captureUpdate: "IMMEDIATELY" });
+    }, lane);
+    const onNote = await toView(page, lane.x + 160, lane.y + 680);
+    await page.mouse.click(onNote.x, onNote.y, { button: "right" });
+    await expect(page.locator(".excalidraw .context-menu")).toBeVisible();
+    await page.waitForTimeout(300);
+    await expect(ours).toHaveCount(0);
+  });
+
+  test("Tidy all stacks every lane and compacts the inbox in one undo step; also in the main menu", async ({ page }) => {
+    await frame(page);
+    const inbox = board.savedElements().find((e) => e.customData?.excaliagent?.kind === "inbox")!;
+    const [lane, doing] = [lanes()[0]!, lanes()[1]!];
+    const messy = {
+      [ID.busy]: { x: lane.x + 5, y: lane.y + 700 },
+      [ID.idleWarm]: { x: doing.x + 30, y: doing.y + 400 },
+      [ID.waiting]: { x: inbox.x + 15, y: inbox.y + 900 },
+    };
+    for (const [id, at] of Object.entries(messy)) await moveCard(page, id, at.x, at.y);
+    await expect.poll(() => card(ID.waiting)?.y).toBe(inbox.y + 900);
+
+    await page.getByRole("button", { name: "Tidy all" }).click();
+    await expect.poll(() => card(ID.busy)).toMatchObject({ x: lane.x + 20, y: lane.y + 56 });
+    expect(card(ID.idleWarm)).toMatchObject({ x: doing.x + 20, y: doing.y + 56 });
+    // The inbox: its own columns, each card at the top or exactly 20 below the card above.
+    const inInbox = [ID.needsUser, ID.idleCold, ID.waiting].map((id) => card(id)!);
+    for (const c of inInbox) {
+      expect([inbox.x + 20, inbox.x + 340]).toContain(c.x);
+      const above = inInbox.filter((o) => o.x === c.x && o.y < c.y);
+      const want = above.length ? Math.max(...above.map((o) => o.y + o.height)) + 20 : inbox.y + 56;
+      expect(c.y).toBe(want);
+    }
+    expect(card(ID.waiting)!.y).toBeLessThan(inbox.y + 900);
+
+    // One undo step puts every card back.
+    await page.locator(".excalidraw").focus();
+    await page.keyboard.press("Control+z");
+    for (const [id, at] of Object.entries(messy)) await expect.poll(() => card(id)).toMatchObject(at);
+
+    await page.getByTestId("main-menu-trigger").click();
+    await page.locator(".dropdown-menu").getByText("Tidy all", { exact: true }).click();
+    await expect.poll(() => card(ID.busy)).toMatchObject({ x: lane.x + 20, y: lane.y + 56 });
+  });
+
+  test("with the setting off, a drop on a lane title does nothing special; it is remembered", async ({ page }) => {
+    await frame(page);
+    await page.getByTestId("main-menu-trigger").click();
+    const toggle = page.getByRole("menuitemcheckbox", { name: "Drop on lane title stacks cards" });
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+
+    const lane = todo();
+    const before = card(ID.needsUser)!;
+    await drag(page, centre(ID.needsUser), { x: lane.x + 80, y: lane.y + 25 }, async () => {
+      await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
+    });
+    await expect.poll(() => card(ID.needsUser)?.x).not.toBe(before.x);
+    await page.waitForTimeout(300);
+    expect(card(ID.needsUser)?.x).not.toBe(lane.x + 20);
+
+    await page.reload();
+    await expect(page.locator(".excalidraw")).toBeVisible();
+    await page.getByTestId("main-menu-trigger").click();
+    await expect(page.getByRole("menuitemcheckbox", { name: "Drop on lane title stacks cards" })).toHaveAttribute("aria-checked", "false");
+  });
+});
 test.describe("an existing board with an inbox and no lanes", () => {
   const inbox = {
     id: "old-inbox", type: "rectangle", x: 100, y: 50, width: 980, height: 824, angle: 0,

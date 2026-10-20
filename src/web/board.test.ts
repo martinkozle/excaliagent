@@ -14,6 +14,9 @@ import {
   saveHash,
   filesToUpload,
   imageFileIds,
+  laneMenuItems,
+  readLaneDrop,
+  writeLaneDrop,
 } from "./board.ts";
 import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
 
@@ -173,5 +176,41 @@ describe("image files", () => {
     expect(filesToUpload(elements, files, new Set(), new Set(["logo"]))).toEqual([file("shot")]);
     expect(filesToUpload(elements, files, new Set(["shot"]), new Set(["logo"]))).toEqual([]);
     expect(filesToUpload(elements, {} as never, new Set(), new Set())).toEqual([]);
+  });
+});
+
+describe("laneMenuItems", () => {
+  it("a lane offers Tidy cards", () => {
+    expect(laneMenuItems()).toEqual([{ action: "tidy", label: "Tidy cards" }]);
+  });
+});
+
+describe("lane drop setting", () => {
+  const store = () => {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  };
+
+  it("is on by default and round-trips off/on", () => {
+    const s = store();
+    expect(readLaneDrop(s)).toBe(true);
+    writeLaneDrop(false, s);
+    expect(readLaneDrop(s)).toBe(false);
+    writeLaneDrop(true, s);
+    expect(readLaneDrop(s)).toBe(true);
+  });
+
+  it("fails soft: storage that throws (or is missing) reads as on and ignores writes", () => {
+    const broken = {
+      getItem: (): string | null => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    };
+    expect(readLaneDrop(broken)).toBe(true);
+    expect(() => writeLaneDrop(false, broken)).not.toThrow();
+    expect(readLaneDrop(undefined)).toBe(true);
   });
 });

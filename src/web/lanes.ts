@@ -3,8 +3,11 @@
 // never patches them after;
 // `customData.excaliagent = {kind:"lane"}` / `{kind:"lane-label"}` are markers only.
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { CARD_W, INBOX_H, INBOX_ORIGIN, isInbox, makeInbox, makeTitledArea, type Gen, type Measure } from "./cards.ts";
-import { GAP } from "./inbox.ts";
+import { AREA_HEADER, CARD_W, INBOX_H, INBOX_ORIGIN, cardMeta, isInbox, makeInbox, makeTitledArea, type Gen, type Measure } from "./cards.ts";
+import { elementBounds, inside, overlaps, type Box } from "./geometry.ts";
+import { GAP, columnsOf, firstFree } from "./inbox.ts";
+
+export { elementBounds };
 
 export const LANE_W = CARD_W + 2 * GAP;
 export const LANE_GAP = 40;
@@ -71,4 +74,168 @@ export function addLane(
   const at = right ? { x: right.x + right.width + LANE_GAP, y: right.y } : INBOX_ORIGIN;
   const made = lane(gen, now, { ...at, height: right?.height ?? INBOX_H }, "New lane", measure);
   return { elements: [...elements, ...made], lane: made[0]! };
+}
+
+// --- Lining cards up in a lane (issue #11) ------------------------------------
+// The one place the app moves cards, and only in direct response to a user
+// gesture: dropping a card on a lane's title band, "Tidy cards" on a lane or
+// the inbox, or "Tidy all".
+// Fixed cards (see isFixedCard) are never moved; the column flows around them.
+// Cards in a column are `GAP` apart from their actual bottoms: a card whose
+// title later grows a line may then overlap the card below by a few px, until
+// the user tidies again (the app never moves cards on its own).
+
+/** Topmost non-deleted lane containing the scene point (rotation ignored). */
+export function laneAt(elements: readonly ExcalidrawElement[], x: number, y: number): ExcalidrawElement | undefined {
+  return elements.findLast((e) => isLane(e) && inside(e, x, y));
+}
+
+/** Areas "Tidy cards" works on: lanes and the inbox. */
+const isTidyArea = (e: ExcalidrawElement) => isLane(e) || isInbox(e);
+
+/**
+ * The lane (or inbox) to offer "Tidy cards" for: the topmost one at the point,
+ * but only when nothing drawn above it (a note, an arrow, a card) is under
+ * the pointer except its own title.
+ */
+export function laneTargetAt(elements: readonly ExcalidrawElement[], x: number, y: number): ExcalidrawElement | undefined {
+  const lane = elements.findLast((e) => isTidyArea(e) && inside(e, x, y));
+  if (!lane) return undefined;
+  const above = elements.slice(elements.indexOf(lane) + 1);
+  const blocked = above.some(
+    (e) => !e.isDeleted && !(e.type === "text" && e.containerId === lane.id) && inside(elementBounds(e), x, y),
+  );
+  return blocked ? undefined : lane;
+}
+
+/** A lane's drop zone: its title band, the full width and `AREA_HEADER` tall. */
+export function dropZone(lane: Box): Box {
+  return { x: lane.x, y: lane.y, width: lane.width, height: Math.min(AREA_HEADER, lane.height) };
+}
+
+/** Topmost lane whose drop zone contains the scene point. */
+export function dropLaneAt(elements: readonly ExcalidrawElement[], x: number, y: number): ExcalidrawElement | undefined {
+  return elements.findLast((e) => isLane(e) && inside(dropZone(e), x, y));
+}
+
+/** The non-deleted lanes, in scene order (taken once when a drag starts). */
+export function lanesOf(elements: readonly ExcalidrawElement[]): ExcalidrawElement[] {
+  return elements.filter(isLane);
+}
+
+/** Drop zones of `lanes` that intersect the visible scene area `view`: the hints shown while dragging a card. */
+export function zonesInView(lanes: readonly ExcalidrawElement[], view: Box): Array<{ laneId: string; zone: Box }> {
+  return lanes.map((l) => ({ laneId: l.id, zone: dropZone(l) })).filter(({ zone }) => overlaps(zone, view));
+}
+
+/** Card rects whose centre is inside the lane, in scene order. */
+export function cardsInLane(elements: readonly ExcalidrawElement[], lane: Box): ExcalidrawElement[] {
+  return elements.filter((e) => !e.isDeleted && cardMeta(e) && inside(lane, e.x + e.width / 2, e.y + e.height / 2));
+}
+
+/**
+ * A card the app must not move: locked, rotated, bound to an arrow (the
+ * user's arrow would be left behind, and the app never edits user drawings),
+ * or grouped by the user with something else.
+ */
+export function isFixedCard(rect: ExcalidrawElement): boolean {
+  return (
+    rect.locked ||
+    rect.angle !== 0 ||
+    rect.groupIds.length > 1 ||
+    !!rect.boundElements?.some((b) => b.type === "arrow")
+  );
+}
+
+/**
+ * Where a card dropped on the lane's title goes: the lane's column (`GAP` from
+ * its left edge), `GAP` below the actual bottom of the lowest card already in
+ * the lane (fixed ones by their rotated bounds), or right under the title in
+ * an empty lane. A full lane is not grown: the card just goes below, past its
+ * bottom edge.
+ */
+export function slotBelow(elements: readonly ExcalidrawElement[], lane: Box, excludeId?: string): { x: number; y: number } {
+  const bottom = cardsInLane(elements, lane)
+    .filter((c) => c.id !== excludeId)
+    .map(elementBounds)
+    .reduce((y, b) => Math.max(y, b.y + b.height + GAP), lane.y + AREA_HEADER);
+  return { x: lane.x + GAP, y: bottom };
+}
+
+/**
+ * "Tidy cards": an area's movable cards packed under its title in their
+ * current vertical order (then left to right), each `GAP` below the actual
+ * bottom of the card above it. A lane is one column, strictly top-down. The
+ * inbox has as many columns as fit its width, each stacked on its own; each
+ * card takes the first free spot (`firstFree`), so the grid is compacted in
+ * reading order. Fixed cards stay put as obstacles: a card whose spot would
+ * come within `GAP` of one goes below it instead. Only cards that actually
+ * move are returned (rect id → new top-left).
+ */
+export function tidyMoves(elements: readonly ExcalidrawElement[], area: ExcalidrawElement): Map<string, { x: number; y: number }> {
+  const cards = cardsInLane(elements, area).sort((a, b) => a.y - b.y || a.x - b.x);
+  const obstacles = cards.filter(isFixedCard).map(elementBounds);
+  const inbox = isInbox(area);
+  const columns = inbox ? columnsOf(area) : [area.x + GAP];
+  const moves = new Map<string, { x: number; y: number }>();
+  let top = area.y + AREA_HEADER;
+  for (const c of cards) {
+    if (isFixedCard(c)) continue;
+    const to = firstFree(columns, top, c, obstacles);
+    if (inbox) obstacles.push({ ...to, width: c.width, height: c.height });
+    else top = to.y + c.height + GAP; // a lane: the next card never goes above this one
+    if (to.x !== c.x || to.y !== c.y) moves.set(c.id, to);
+  }
+  return moves;
+}
+
+/**
+ * "Tidy all": `tidyMoves` for every lane and inbox at once, for one undoable
+ * edit. A card inside two overlapping areas is placed by the first in scene order.
+ */
+export function tidyAllMoves(elements: readonly ExcalidrawElement[]): Map<string, { x: number; y: number }> {
+  const moves = new Map<string, { x: number; y: number }>();
+  for (const area of elements.filter(isTidyArea)) {
+    for (const [id, to] of tidyMoves(elements, area)) if (!moves.has(id)) moves.set(id, to);
+  }
+  return moves;
+}
+
+/** The elements of a card: its rect and everything in its (innermost) app group. */
+const inCard = (rect: ExcalidrawElement, e: ExcalidrawElement) =>
+  e.id === rect.id || (!!rect.groupIds[0] && e.groupIds[0] === rect.groupIds[0]);
+
+/** Moves each card (rect id → new top-left) with its whole group; everything else is returned as is. */
+export function moveCards(
+  elements: readonly ExcalidrawElement[],
+  moves: ReadonlyMap<string, { x: number; y: number }>,
+  gen: Gen,
+  now: number,
+): ExcalidrawElement[] {
+  const deltas = [...moves].flatMap(([id, to]) => {
+    const rect = elements.find((e) => e.id === id && !e.isDeleted);
+    return rect ? [{ rect, dx: to.x - rect.x, dy: to.y - rect.y }] : [];
+  });
+  return elements.map((e) => {
+    if (e.isDeleted) return e;
+    const d = deltas.find((d) => inCard(d.rect, e));
+    if (!d || (d.dx === 0 && d.dy === 0)) return e;
+    return { ...e, x: e.x + d.dx, y: e.y + d.dy, version: e.version + 1, versionNonce: gen.seed(), updated: now };
+  });
+}
+
+/**
+ * The card being dragged, if the selection is exactly one movable card: its
+ * rect, plus any of its own parts. Anything else selected (another card, a
+ * note, a lane), or a fixed card → undefined, so only lone free cards are placed.
+ */
+export function draggedCard(
+  elements: readonly ExcalidrawElement[],
+  selectedIds: Readonly<Record<string, true | boolean>>,
+): ExcalidrawElement | undefined {
+  const selected = elements.filter((e) => !e.isDeleted && selectedIds[e.id]);
+  const rects = selected.filter((e) => cardMeta(e));
+  if (rects.length !== 1) return undefined;
+  const rect = rects[0]!;
+  return !isFixedCard(rect) && selected.every((e) => inCard(rect, e)) ? rect : undefined;
 }

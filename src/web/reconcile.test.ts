@@ -336,14 +336,30 @@ describe("reconcile", () => {
     expect(partOf(r.elements, c3, "card-title").x).toBe(3340 + PAD);
   });
 
-  it("grid wraps to the next row inside the default inbox", () => {
+  it("fills the inbox's two columns, each card GAP below the actual bottom of the one above", () => {
     const sessions = ["a", "b", "d"].map((id) => session({ id }));
     const r = reconcile(sessions, [], NOW, testGen());
     const inbox = inboxOf(r.elements)!;
-    const [a, , d] = sessions.map((s) => cardsOf(r.elements, s.id)[0]!);
+    const [a, b, d] = sessions.map((s) => cardsOf(r.elements, s.id)[0]!);
+    expect(b!.y).toBe(a!.y);
     expect(d!.x).toBe(a!.x);
-    expect(d!.y).toBeGreaterThan(a!.y + a!.height);
+    expect(d!.y).toBe(a!.y + a!.height + 20);
     expect(d!.y + d!.height).toBeLessThanOrEqual(inbox.y + inbox.height);
+  });
+
+  it("a new two-line card does not squeeze into a hole only a one-line card fits", () => {
+    const long = "A deliberately long session title that wraps onto a second line of the card";
+    const gen = testGen();
+    const first = reconcile([session({ id: "a" }), session({ id: "b" })], [], NOW, gen);
+    // A hole in column 0 exactly as tall as a one-line card plus the gaps.
+    const a = cardsOf(first.elements, "a")[0]!;
+    const blocker = { ...a, id: "blocker", y: a.y + 2 * a.height + 40, groupIds: [], customData: { excaliagent: { kind: "card", source: "claude", sessionId: "x" } } };
+    const tallB = cardsOf(first.elements, "b")[0]!;
+    const els = first.elements.map((e) => (e.id === tallB.id ? { ...e, height: 2000 } : e));
+    const r = reconcile([session({ id: "c", title: long })], [...els, blocker as typeof a], NOW, gen);
+    const c = cardsOf(r.elements, "c")[0]!;
+    expect(c.height).toBe(CARD_H);
+    expect([c.x, c.y]).toEqual([a.x, blocker.y + blocker.height + 20]);
   });
 
   it("a fresh board gets the starter lanes with its inbox", () => {
