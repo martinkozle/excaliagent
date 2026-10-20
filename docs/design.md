@@ -384,6 +384,23 @@ their rotated bounds), and a fixed card being dragged is never placed.
   **Tidy all** (same button style; also in the main menu).
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
+- **Top-right buttons** (`TopBar.tsx`, `topbar.ts`, `topbar.css`): "+ Lane",
+  "Tidy all" and "Sessions" are styled like Excalidraw's Library button (its
+  `sidebar-trigger` class): a 24 px tabler-style icon (stroke 1.25, like
+  Excalidraw's) and a one-line label. `sidebar-trigger` sets `line-height: 0`,
+  so a label that wraps draws its lines over each other; ours never wrap.
+  `topBarLayout(appState.width, isMobile, n)` picks the layout from the canvas
+  width that `renderTopRightUI` receives: **labels** when there is room beside
+  the toolbar and the labelled Library button; **icons** (label hidden, kept
+  as `title` tooltip and `aria-label`) when there is not; **column** (icons in
+  a column flush with the right edge, below Excalidraw's own right-hand
+  controls, styled like its mobile tool column) when even icons do not fit,
+  and always in Excalidraw's phone layout (`isMobile`, under 730 px), whose
+  top row is all toolbar. The thresholds are fixed estimates of Excalidraw
+  0.18.1's widths (toolbar ~550 px); an e2e test checks at 400–1400 px that
+  nothing overlaps. Excalidraw's Library button itself only drops its label
+  in the phone layout; just above it (730–750 px) Excalidraw's own Library
+  button runs up to 18 px past the right edge, with or without ours.
 - **Lane drop zone** (`src/web/lanes.ts`: `dropZone`, `dropLaneAt`,
   `slotBelow`, `draggedCard`; wiring in `App.tsx`): a lane's drop zone is its
   title band, the full lane width × `AREA_HEADER` (56) from its top edge, i.e.

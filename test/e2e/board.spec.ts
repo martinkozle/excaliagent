@@ -405,7 +405,7 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);
   const last = lanes().at(-1)!;
-  await page.getByRole("button", { name: "+ Lane" }).click();
+  await page.getByRole("button", { name: "Add lane" }).click();
   await expect.poll(() => lanes().length).toBe(9);
   expect(lanes().at(-1)).toMatchObject({ x: last.x + last.width + 40, y: last.y, width: last.width, height: last.height });
   expect(laneTitles().at(-1)).toBe("New lane");
@@ -414,10 +414,70 @@ test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
   await expect.poll(() => lanes().length).toBe(8);
 });
 
+/**
+ * Our top-right buttons at the current window width: each is fully on screen
+ * with a visible icon; a shown label sits on one line inside its button; no
+ * button overlaps another, Excalidraw's toolbar, its Library button or its
+ * mobile tool column. Returns how many labels are shown.
+ */
+async function expectTopButtonsClean(page: Page): Promise<number> {
+  const buttons = page.locator(".excaliagent-top .sidebar-trigger");
+  await expect(buttons).toHaveCount(3);
+  const vp = page.viewportSize()!;
+  const boxes = [];
+  let labels = 0;
+  for (const b of await buttons.all()) {
+    const box = (await b.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vp.width + 0.5);
+    const icon = (await b.locator("svg").boundingBox())!;
+    expect(icon.width).toBeGreaterThan(10);
+    expect(icon.x).toBeGreaterThanOrEqual(box.x);
+    expect(icon.x + icon.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    const label = b.locator(".sidebar-trigger__label");
+    if (await label.isVisible()) {
+      labels++;
+      const l = (await label.boundingBox())!;
+      expect(l.height).toBeLessThan(20); // one line
+      expect(l.x).toBeGreaterThanOrEqual(icon.x + icon.width); // beside the icon, not over it
+      expect(l.x + l.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    }
+    boxes.push(box);
+  }
+  for (const sel of [".App-toolbar", ".default-sidebar-trigger", ".mobile-misc-tools-container"]) {
+    const el = page.locator(`.excalidraw ${sel}`).first();
+    if (await el.isVisible()) boxes.push((await el.boundingBox())!);
+  }
+  // Pairs with at least one of ours (Library sits inside the mobile column).
+  for (let i = 0; i < 3; i++)
+    for (let j = i + 1; j < boxes.length; j++) {
+      const [a, b] = [boxes[i]!, boxes[j]!];
+      const overlap = a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
+      expect(overlap, `boxes ${i} and ${j} overlap at ${vp.width}px`).toBe(false);
+    }
+  return labels;
+}
+
+test("the top-right buttons never overlap: labels collapse into tooltips on narrow windows", async ({ page }) => {
+  await open(page);
+  const shown: Record<number, number> = {};
+  for (const width of [1400, 1160, 1000, 935, 800, 600, 400]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(300);
+    shown[width] = await expectTopButtonsClean(page);
+  }
+  expect(shown).toEqual({ 1400: 3, 1160: 3, 1000: 0, 935: 0, 800: 0, 600: 0, 400: 0 });
+  // Icon-only buttons keep their names and tooltips, and still work.
+  await expect(page.getByRole("button", { name: "Add lane" })).toHaveAttribute("title", "Add a lane at the right end");
+  await page.getByRole("button", { name: "Add lane" }).click();
+  await expect.poll(() => lanes().length).toBe(9);
+});
+
 test("Reset the canvas starts a fresh board at once: inbox, lanes, live cards", async ({ page }) => {
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);
-  await page.getByRole("button", { name: "+ Lane" }).click();
+  await page.getByRole("button", { name: "Add lane" }).click();
   await expect.poll(() => lanes().length).toBe(9);
   await page.getByTestId("main-menu-trigger").click();
   await page.getByText("Reset the canvas").click();

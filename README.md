@@ -60,7 +60,8 @@ bookmark. Running it again while a board is up just opens that board.
   else stay put; the column goes around them. Ctrl+Z undoes a tidy (or Tidy
   all) in one step and a drop in two (the snap, then the drag). Turn the
   title drop off in the main menu (*Drop on lane title stacks cards*).
-- **Dormant sessions** are added from the **Sessions** panel (top right).
+- **Dormant sessions** are added from the **Sessions** panel (top right). On a
+  narrow window the top-right buttons show only their icons; hover for the name.
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
   Sway, macOS). A dormant session is resumed with `claude --resume` in a new herdr

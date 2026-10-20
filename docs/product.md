@@ -91,6 +91,9 @@ OpenCode) are a later adapter.
   in columns, evenly spaced below the card above.
 - Images I paste onto the board are kept too.
 - A new board comes with Kanban lanes beside the inbox; **+ Lane** adds more.
+- The board's own buttons (top right) fit at every window width: on a narrow
+  window they shrink to icons with tooltips, and below that move into a
+  column at the right edge; their labels never overlap.
 
 ### S6. Publish (in progress)
 

@@ -37,6 +37,8 @@ import {
 import { CardMenu } from "./CardMenu.tsx";
 import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
+import { PlusIcon, SessionsIcon, TidyIcon, TopBar, TopButton } from "./TopBar.tsx";
+import { topBarLayout } from "./topbar.ts";
 import { reconcile } from "./reconcile.ts";
 import { LOGOS, logoFiles } from "./logos.ts";
 import {
@@ -488,28 +490,32 @@ export function App() {
         initialData={initialData}
         excalidrawAPI={setExcalidraw}
         onChange={onChange}
-        renderTopRightUI={() => (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {!connected && <span style={{ color: "#e03131", fontSize: 12 }}>server offline</span>}
-            <button type="button" className="sidebar-trigger" title="Add a lane at the right end" onClick={addOneLane}>
-              + Lane
-            </button>
-            <button
-              type="button"
-              className="sidebar-trigger"
+        renderTopRightUI={(isMobile, appState) => (
+          <TopBar layout={topBarLayout(appState.width, isMobile, 3)}>
+            {!connected && <span className="excaliagent-offline">server offline</span>}
+            <TopButton
+              icon={PlusIcon}
+              label="Lane"
+              name="Add lane"
+              title="Add a lane at the right end"
+              onClick={addOneLane}
+            />
+            <TopButton
+              icon={TidyIcon}
+              label="Tidy all"
+              name="Tidy all"
               title="Stack the cards of every lane and the inbox (one undo step)"
               onClick={tidyAll}
-            >
-              Tidy all
-            </button>
+            />
             <Sidebar.Trigger
               name={PICKER}
+              icon={SessionsIcon}
               title="Add a dormant session to the board"
               onToggle={(open) => open && refreshPicker()}
             >
               Sessions
             </Sidebar.Trigger>
-          </div>
+          </TopBar>
         )}
       >
         <MainMenu>
