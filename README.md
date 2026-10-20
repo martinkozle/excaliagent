@@ -69,6 +69,9 @@ See `npx excaliagent --help`.
 - Its only actions: focus a herdr pane, raise the terminal window, and start
   `claude --resume <id>` in a new herdr pane. It never types into a running
   session.
+- The only outside request: Chinese, Japanese or Korean text on the board loads
+  Excalidraw's CJK font from esm.sh (it is not bundled, to keep the package
+  small). Everything else, including all other fonts, is served locally.
 
 ## Platforms
 

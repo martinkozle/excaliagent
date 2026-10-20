@@ -3,7 +3,8 @@ name: Publish
 # Push a tag like v0.2.0 (matching package.json "version") to publish to npm.
 # Uses npm trusted publishing (OIDC): no token in the repo. One-time setup on
 # npmjs.com: package settings → Trusted publishers → GitHub Actions,
-# repository martinkozle/excaliagent, workflow publish.yml.
+# repository martinkozle/excaliagent, workflow publish.yml, environment npm.
+# The npm environment (repo settings) only admits deployments from v* tags.
 on:
   push:
     tags: ["v*"]
@@ -15,6 +16,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

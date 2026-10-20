@@ -24,14 +24,20 @@ details. When something gets built, close its issue and describe it in
 | [#6 Remote machines via herdr --machine](https://github.com/martinkozle/excaliagent/issues/6) | sources, herdr |
 | [#7 Arrows between related sessions](https://github.com/martinkozle/excaliagent/issues/7) | board |
 | [#8 Fit card height to the title](https://github.com/martinkozle/excaliagent/issues/8) | board, good first issue |
-| [#9 Lighter package (CJK font from CDN)](https://github.com/martinkozle/excaliagent/issues/9) | packaging, good first issue |
 
 ## Releasing
 
 Push a `v*` tag matching `package.json` "version"; `.github/workflows/publish.yml`
-publishes to npm with trusted publishing (no token). One-time setup on
-npmjs.com: package settings → Trusted publishers → this repository and
-`publish.yml`.
+publishes to npm with trusted publishing (no token). Then create a GitHub
+release for the tag with the notes.
+
+One-time setup:
+
+- npmjs.com, package settings → Trusted publishers → GitHub Actions: this
+  repository, workflow `publish.yml`, environment `npm`. Publishing access:
+  require 2FA and disallow tokens.
+- GitHub: environment `npm` admits deployments from `v*` tags only; Actions are
+  limited to GitHub-owned actions (`actions/*`).
 
 ## Deliberately out of scope
 
