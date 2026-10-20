@@ -22,7 +22,8 @@ about Claude Code or herdr, write down the version you verified it on.
   in `docs/design.md` ("What the app may change"). Never position, size,
   rotation, grouping or frames of anything the user arranged; never the user's
   own drawings. (A card's height fits its title only while it still has the
-  height the app gave it, `appHeight`; once the user resizes it, it is theirs.)
+  height the app gave it, `appHeight`, and is unrotated; once the user
+  resizes it, it is theirs.)
 - **Never send input to an agent session.** The only side effects: focusing a
   pane, starting `claude --resume <id>` in a *new* pane, and, after the user
   confirms, ending a running session with SIGTERM (as if its terminal closed;

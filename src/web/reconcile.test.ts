@@ -162,18 +162,45 @@ describe("reconcile", () => {
       }
     });
 
-    it("leaves cards from before fitting (no app-set height) at their height", () => {
+    /** The card as boards from before fitting stored it: no appHeight, at `height`. */
+    const preFitting = (els: readonly ExcalidrawElement[], id: string, height: number) =>
+      els.map((e) => {
+        if (e.id !== id) return e;
+        const { appHeight: _, ...meta } = e.customData!.excaliagent;
+        return { ...e, height, customData: { excaliagent: meta } };
+      });
+
+    it("a card from before fitting at the old fixed height (CARD_H) counts as app-sized and gets fitted", () => {
       const gen = testGen();
       const a = reconcile([session({ title: "short" })], [], NOW, gen, { measure: mono });
       const card0 = cardsOf(a.elements)[0]!;
-      const old = a.elements.map((e) => {
-        if (e.id !== card0.id) return e;
-        const { appHeight: _, ...meta } = e.customData!.excaliagent;
-        return { ...e, height: CARD_H, customData: { excaliagent: meta } };
-      });
+      const old = preFitting(a.elements, card0.id, CARD_H);
       const r = reconcile([session({ title: "short" })], old, NOW, gen, { measure: mono });
-      expect(r.changed).toBe(false);
-      expect(reconcile([session({ title: LONG })], old, NOW, gen, { measure: mono }).elements.find((e) => e.id === card0.id)!.height).toBe(CARD_H);
+      const fitted = heightOf(r.elements, card0.id);
+      expect(fitted).toMatchObject({ x: card0.x, y: card0.y, height: cardHeight(1) });
+      expect(fitted.customData!.excaliagent.appHeight).toBe(cardHeight(1));
+      expect(reconcile([session({ title: "short" })], r.elements, NOW, gen, { measure: mono }).changed).toBe(false);
+      // Two-line title at CARD_H: already fits, nothing to patch.
+      expect(reconcile([session({ title: LONG })], preFitting(a.elements, card0.id, CARD_H), NOW, gen, { measure: mono }).elements.find((e) => e.id === card0.id)!.height).toBe(CARD_H);
+    });
+
+    it("a card from before fitting at any other height was resized by the user: left alone", () => {
+      const gen = testGen();
+      const a = reconcile([session({ title: "short" })], [], NOW, gen, { measure: mono });
+      const card0 = cardsOf(a.elements)[0]!;
+      const old = preFitting(a.elements, card0.id, 240);
+      expect(reconcile([session({ title: "short" })], old, NOW, gen, { measure: mono }).changed).toBe(false);
+      expect(heightOf(reconcile([session({ title: LONG })], old, NOW, gen, { measure: mono }).elements, card0.id).height).toBe(240);
+    });
+
+    it("never fits a rotated card (its rotation centre would shift)", () => {
+      const gen = testGen();
+      const a = reconcile([session({ title: "short" })], [], NOW, gen, { measure: mono });
+      const card0 = cardsOf(a.elements)[0]!;
+      const rotated = a.elements.map((e) => (e.id === card0.id ? { ...e, angle: 0.3 as ExcalidrawElement["angle"] } : e));
+      expect(heightOf(reconcile([session({ title: LONG })], rotated, NOW, gen, { measure: mono }).elements, card0.id).height).toBe(cardHeight(1));
+      const old = preFitting(rotated, card0.id, CARD_H);
+      expect(heightOf(reconcile([session({ title: "short" })], old, NOW, gen, { measure: mono }).elements, card0.id).height).toBe(CARD_H);
     });
 
     it("a card whose session vanished keeps fitting its current title", () => {
@@ -381,7 +408,9 @@ describe("reconcile", () => {
       const before = legacyCard[1]!;
       const card = r.elements.find((e) => e.id === "card-s1")!;
       expect([card.x, card.y, card.width, card.angle]).toEqual([before.x, before.y, before.width, before.angle]);
-      expect(card.height).toBe(CARD_H);
+      // Grown to the old fixed height, which counts as app-sized: fitted to its one-line title at once.
+      expect(card.height).toBe(cardHeight(1));
+      expect(card.customData!.excaliagent.appHeight).toBe(cardHeight(1));
       expect(card.groupIds).toHaveLength(2);
       expect(card.groupIds[1]).toBe("user-grp");
       expect(card.boundElements).toEqual([{ type: "arrow", id: "user-arrow-2" }]);

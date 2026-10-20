@@ -310,9 +310,12 @@ the same array.
 - Existing card → rect: only colours, `link`, and its height fitted to the
   title's line count (`cardHeight`, growing or shrinking downwards from the
   same top edge) with `appHeight` updated to match. The height is fitted only
-  while the rect's height still equals `appHeight` (±0.5 px): a card the user
-  resized (or scaled) differs and keeps its height from then on, as does a card
-  from before fitting (no `appHeight`). Texts: only
+  while the rect is unrotated (`angle` 0; a height change would shift a rotated
+  card's rotation centre) and its height still equals `appHeight` (±0.5 px). A
+  card from before fitting has no `appHeight`; it counts as app-sized when it
+  is exactly the old fixed height (`CARD_H`, 181), so existing boards get
+  fitted too. A card the user resized (or scaled) differs and keeps its height
+  from then on. Texts: only
   `text`/`originalText` and their box size; the details text is re-placed under
   the title when the title's line count changes. Never x, y, width,
   angle, groupIds or frameId of anything, nor the height of anything else.
@@ -327,8 +330,9 @@ the same array.
 - **Migration** of old cards (rect + bound 5-line label): the bound text is
   soft-deleted, a fresh group id is prepended to the rect's `groupIds`, the
   rect grows to the new height if shorter, and title/details are created at the
-  rect's current position. This is the only time `groupIds` change; such a
-  card has no `appHeight`, so its height is not fitted afterwards.
+  rect's current position. This is the only time `groupIds` change. A card
+  grown to `CARD_H` this way counts as app-sized and is fitted in the same pass;
+  a taller one keeps its height.
 - App patches use `CaptureUpdateAction.NEVER`: undo only undoes the user's edits.
 
 ### Interactions

@@ -90,7 +90,8 @@ export const INBOX_ORIGIN = { x: 40, y: 80 };
 /**
  * `appHeight`: the height the app last gave the rect (fitted to the title). A
  * rect whose height differs was resized by the user and is never refitted;
- * cards made before fitting have none and are never refitted either.
+ * cards made before fitting have none and count as app-sized only at exactly
+ * the old fixed height, CARD_H.
  */
 export type CardMeta = { kind: "card"; source: Session["source"]; sessionId: string; appHeight?: number };
 export type CardPartKind = "card-title" | "card-details" | "card-logo";
