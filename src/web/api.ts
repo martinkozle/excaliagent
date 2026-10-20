@@ -45,6 +45,13 @@ export const api = {
    * Resume a dormant session in a new herdr tab. "ok" on 204; otherwise why not:
    * "no herdr" / "live" (409), "unknown" (404). Other failures throw.
    */
+  /** Ask a running session to exit. False when it is not running (any more). */
+  end: async (sessionId: string): Promise<boolean> => {
+    const res = await fetch("/api/end", jsonInit("POST", { sessionId }));
+    if (res.status === 409) return false;
+    await ok(res);
+    return true;
+  },
   resume: async (sessionId: string): Promise<ResumeResult> => {
     const res = await fetch("/api/resume", jsonInit("POST", { sessionId }));
     if (res.status === 204) return "ok";

@@ -19,9 +19,12 @@ export interface Hub {
    * "live": it is running, focus it instead. "no-herdr": nothing can open a terminal.
    */
   resume(sessionId: string): Promise<ResumeResult>;
+  /** Ask a running session to exit (the source decides how). */
+  end(sessionId: string): Promise<EndResult>;
 }
 
 export type ResumeResult = "resumed" | "no-herdr" | "unknown" | "live";
+export type EndResult = "ended" | "not-live" | "unknown" | "unsupported";
 
 /** Claude session ids are UUIDs; anything else is never put into a command. */
 export const SESSION_ID = /^[0-9a-f-]{36}$/i;
@@ -110,6 +113,11 @@ export function createHub({ source, panes }: { source: Source; panes: PaneLink }
         label: resumeLabel(s),
       });
       return "resumed";
+    },
+    async end(sessionId) {
+      if (!SESSION_ID.test(sessionId)) return "unknown";
+      if (!source.end) return "unsupported";
+      return source.end(sessionId);
     },
     async focus(sessionId) {
       const pane = current.find((s) => s.id === sessionId)?.pane;

@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { Desktop } from "../desktop/desktop.ts";
 import { createHerdrClient, HerdrError, type Connect } from "./herdr-client.ts";
-import { createProcessTable, type ProcessTable } from "../desktop/process-table.ts";
+import { createProcessTable, type ProcEntry, type ProcessTable } from "../desktop/process-table.ts";
 import { findHerdrClientPids, herdrSocketPath } from "./herdr-clients.ts";
 import type { Pane, PaneLink, ResumeRequest } from "./types.ts";
 
@@ -75,13 +75,37 @@ export interface ProcessInfo {
 
 const workspaceOf = (paneId: string) => paneId.split(":")[0] ?? paneId;
 
-/** pid → pane for every foreground process of every pane; `panes` supplies ids and labels. */
-export function parsePaneMap(infos: ProcessInfo[], panes = new Map<string, Pane>()): Map<number, Pane> {
+/**
+ * pid → pane for every foreground process of every pane; `panes` supplies ids
+ * and labels. With `procs` (the process table), every descendant of a pane's
+ * shell maps to that pane too: a session is not always in the foreground (a
+ * command it runs can take the terminal, or it is suspended). Foreground wins.
+ */
+export function parsePaneMap(
+  infos: ProcessInfo[],
+  panes = new Map<string, Pane>(),
+  procs: readonly ProcEntry[] = [],
+): Map<number, Pane> {
   const map = new Map<number, Pane>();
+  const byShell = new Map<number, Pane>();
   for (const info of infos) {
     const pane: Pane = panes.get(info.pane_id) ?? { paneId: info.pane_id, workspaceId: workspaceOf(info.pane_id) };
     for (const p of info.foreground_processes ?? []) {
       if (typeof p.pid === "number") map.set(p.pid, pane);
+    }
+    if (typeof info.shell_pid === "number") byShell.set(info.shell_pid, pane);
+  }
+  if (!byShell.size) return map;
+  const children = new Map<number, number[]>();
+  for (const p of procs) children.set(p.ppid, [...(children.get(p.ppid) ?? []), p.pid]);
+  const seen = new Set<number>(); // a pid is walked once, even if the table has a cycle
+  for (const [shell, pane] of byShell) {
+    const todo = [...(children.get(shell) ?? [])];
+    for (let pid = todo.pop(); pid !== undefined; pid = todo.pop()) {
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      if (!map.has(pid)) map.set(pid, pane);
+      todo.push(...(children.get(pid) ?? []));
     }
   }
   return map;
@@ -196,6 +220,7 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
       panes.set(p.pane_id, pane);
     }
     const panesList = list;
+    const procs = table.list().catch(() => [] as ProcEntry[]);
     const infos = await Promise.all(
       panesList.map(async (p) => {
         try {
@@ -207,7 +232,7 @@ export function createHerdrLink(opts: HerdrLinkOptions = {}): HerdrLink {
       }),
     );
     if (closed || !client.connected()) return;
-    setMap(parsePaneMap(infos.filter((i): i is ProcessInfo => !!i), panes));
+    setMap(parsePaneMap(infos.filter((i): i is ProcessInfo => !!i), panes, await procs));
   }
 
   // Coalesce: at most one build running, plus one queued behind it.

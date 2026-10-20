@@ -3,7 +3,7 @@ import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../shared/types.ts";
-import { createClaudeSource } from "./claude.ts";
+import { createClaudeSource, looksLikeClaude } from "./claude.ts";
 import {
   ALICE, BOB, SLUG_A, type SeededHome, aiTitle, continuedIn, ms, registry, seedClaudeHome, sid, standardSpec, user,
 } from "./__fixtures__/seed.ts";
@@ -304,5 +304,53 @@ describe("live git info", () => {
     expect(s.branch).toBe("feature/cards");
     expect(s.repo).toBe("demo-app");
     expect(s.repoRoot).toBeUndefined();
+  });
+});
+
+describe("end", () => {
+  async function endable(isClaude: (pid: number) => Promise<boolean>) {
+    home = await seedClaudeHome(standardSpec());
+    const kills: Array<[number, string]> = [];
+    const src = createClaudeSource({
+      claudeDir: home.dir,
+      isAlive: aliveSet(101, 102),
+      log: silent,
+      isClaudeProcess: isClaude,
+      kill: (pid, signal) => void kills.push([pid, signal]),
+    });
+    return { src, kills };
+  }
+
+  it("sends SIGTERM to the live session's own pid, from the registry", async () => {
+    const { src, kills } = await endable(async () => true);
+    expect(await src.end!(sid(1))).toBe("ended");
+    expect(kills).toEqual([[101, "SIGTERM"]]);
+  });
+
+  it("refuses when that pid is no longer a claude process (pid reuse)", async () => {
+    const { src, kills } = await endable(async () => false);
+    expect(await src.end!(sid(1))).toBe("not-live");
+    expect(kills).toEqual([]);
+  });
+
+  it("refuses sessions that are not running", async () => {
+    const { src, kills } = await endable(async () => true);
+    expect(await src.end!(sid(3))).toBe("not-live"); // dead pid
+    expect(await src.end!("00000000-0000-4000-8000-000000000000")).toBe("not-live");
+    expect(kills).toEqual([]);
+  });
+});
+
+describe("looksLikeClaude", () => {
+  it.each([
+    [["claude"], undefined, true],
+    [["/usr/local/bin/claude", "--resume", "x"], undefined, true],
+    [["claude"], "/nix/store/abc-claude-code-2.1.303/bin/.claude-wrapped", true],
+    [["node", "/opt/claude-code/cli.js"], "/usr/bin/node", true],
+    [["zsh"], "/usr/bin/zsh", false],
+    [["sleep", "300"], "/usr/bin/sleep", false],
+    [undefined, undefined, false],
+  ] as const)("%j %s → %s", (argv, exe, want) => {
+    expect(looksLikeClaude(argv as string[] | undefined, exe)).toBe(want);
   });
 });

@@ -291,6 +291,9 @@ export function App() {
         case "open":
           window.open(item.url, "_blank", "noopener,noreferrer");
           break;
+        case "end":
+          void endSession(ex, sessionId, sessionFor(sessionId));
+          break;
       }
     },
     [excalidraw, menuFor, sessionFor],
@@ -399,7 +402,29 @@ async function focusSession(ex: ExcalidrawImperativeAPI, sessionId: string) {
   } catch (err) {
     console.error("excaliagent: focus failed", err);
   }
-  ex.setToast({ message: "Running, but not in a herdr pane I can find.", duration: 3000, closable: true });
+  ex.setToast({
+    message: "Running, but not in a herdr pane I can find. Right-click → Stop session, then double-click resumes it in herdr.",
+    duration: 6000,
+    closable: true,
+  });
+}
+
+/** Right-click → Stop session: confirm, then the server ends it (SIGTERM; the conversation is kept). */
+async function endSession(ex: ExcalidrawImperativeAPI, sessionId: string, session: Session | undefined) {
+  const name = session?.title || session?.name || session?.repo || "this session";
+  const ok = window.confirm(
+    `Stop "${name}"?\n\nClaude Code exits as if its terminal was closed; work in progress is interrupted. The conversation is kept, and double-clicking the card resumes it.`,
+  );
+  if (!ok) return;
+  let ended: boolean;
+  try {
+    ended = await api.end(sessionId);
+  } catch (err) {
+    console.error("excaliagent: stop failed", err);
+    ex.setToast({ message: "Could not stop the session.", duration: 4000, closable: true });
+    return;
+  }
+  ex.setToast({ message: ended ? `Stopped "${name}".` : "It is not running any more.", duration: 3000, closable: true });
 }
 
 /** Resume in a new herdr tab; without herdr, hand over the shell command instead. */

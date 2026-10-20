@@ -12,4 +12,9 @@ export interface Source {
   listDormant(): Promise<Session[]>;
   /** One session by id (live or dormant), or undefined. */
   get(id: string): Promise<Session | undefined>;
+  /**
+   * Ask a running session to exit, like closing its terminal (the conversation
+   * is kept and can be resumed). "not-live" when it is not running (any more).
+   */
+  end?(id: string): Promise<"ended" | "not-live">;
 }

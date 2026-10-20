@@ -52,7 +52,8 @@ const slug = (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-");
 const iso = (ms: number) => new Date(ms).toISOString();
 
 function dummyProcess(): ChildProcess {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore" });
+  // argv0 "claude": looks like Claude Code to the server's process check (Stop session).
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1 << 30)"], { stdio: "ignore", argv0: "claude" });
   child.unref();
   return child;
 }

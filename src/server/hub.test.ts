@@ -169,4 +169,24 @@ describe("hub", () => {
       expect(down.resume).not.toHaveBeenCalled();
     });
   });
+
+  describe("end", () => {
+    const ID = "0b6f3c1e-1111-4a2b-9c3d-123456789abc";
+    it("asks the source to end a session, and only for a session id", async () => {
+      const f = fakeSource([session({ id: ID })]);
+      const end = vi.fn(async () => "ended" as const);
+      const hub = createHub({ source: { ...f.source, end }, panes: fakePanes() });
+      await hub.start();
+      expect(await hub.end(ID)).toBe("ended");
+      expect(end).toHaveBeenCalledWith(ID);
+      expect(await hub.end("s1; rm -rf ~")).toBe("unknown");
+      expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it("is unsupported when the source cannot end sessions", async () => {
+      const hub = createHub({ source: fakeSource([session({ id: ID })]).source, panes: fakePanes() });
+      await hub.start();
+      expect(await hub.end(ID)).toBe("unsupported");
+    });
+  });
 });

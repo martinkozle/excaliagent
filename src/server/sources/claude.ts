@@ -5,6 +5,7 @@ import { watch as fsWatch, type FSWatcher } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { createProcessTable } from "../desktop/process-table.ts";
 import type { Session, SessionStatus } from "../../shared/types.ts";
 import { GitReader, type GitInfo } from "./git.ts";
 import { onceLogger, type Logger } from "./log.ts";
@@ -22,6 +23,21 @@ export interface ClaudeSourceOptions {
   maxDormant?: number;
   /** How long a cwd's git HEAD read is reused. Default 2000 ms. */
   gitTtlMs?: number;
+  /** Is `pid` still a Claude Code process? Guards end() against pid reuse. Default: argv/exe check. */
+  isClaudeProcess?: (pid: number) => Promise<boolean>;
+  /** Default process.kill. */
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/** A Claude Code process: its executable, argv[0], or script (node cli.js) names claude. */
+export function looksLikeClaude(argv: readonly string[] | undefined, exe: string | undefined): boolean {
+  const names = [argv?.[0] && basename(argv[0]), exe && basename(exe)];
+  return names.some((n) => !!n && /claude/i.test(n)) || /claude/i.test(argv?.[1] ?? "");
+}
+
+function defaultIsClaudeProcess(): (pid: number) => Promise<boolean> {
+  const table = createProcessTable();
+  return async (pid) => looksLikeClaude(await table.argv(pid), await table.exe(pid));
 }
 
 const LIVE_STATUSES: ReadonlySet<string> = new Set<SessionStatus>([
@@ -127,6 +143,8 @@ export function createClaudeSource(opts: ClaudeSourceOptions = {}): Source {
   const warn = onceLogger(opts.log ?? console.warn);
   const scanner = new TranscriptScanner({ warn });
   const git = new GitReader({ ttlMs: opts.gitTtlMs ?? 2000 });
+  const isClaudeProcess = opts.isClaudeProcess ?? defaultIsClaudeProcess();
+  const kill = opts.kill ?? ((pid: number, signal: NodeJS.Signals) => process.kill(pid, signal));
   const pathById = new Map<string, string>();
   /** A cwd seen in any transcript of a project dir, for transcripts without one. */
   const cwdBySlug = new Map<string, string>();
@@ -314,5 +332,17 @@ export function createClaudeSource(opts: ClaudeSourceOptions = {}): Source {
     };
   }
 
-  return { list, listDormant, get, watch };
+  /** SIGTERM, as when its terminal closes: Claude Code exits and keeps the transcript. */
+  async function end(id: string): Promise<"ended" | "not-live"> {
+    const e = (await liveEntries()).find((x) => x.sessionId === id);
+    if (!e || !(await isClaudeProcess(e.pid).catch(() => false))) return "not-live";
+    try {
+      kill(e.pid, "SIGTERM");
+    } catch {
+      return "not-live"; // exited in the meantime
+    }
+    return "ended";
+  }
+
+  return { list, listDormant, get, watch, end };
 }

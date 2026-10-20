@@ -75,7 +75,8 @@ OpenCode) are a later adapter.
 - Double-click resumes it in herdr: a new tab in the workspace for that repo,
   else a new workspace. Without herdr the resume command is copied.
 - Right-click on a card adds an excaliagent section to the menu: focus or
-  resume, copy the resume command (with or without `cd`), open the PR.
+  resume, copy the resume command (with or without `cd`), open the PR, stop a
+  running session (confirmed; the conversation is kept).
 - A card follows its session when Claude Code continues it in a background
   session (`continued-in`).
 

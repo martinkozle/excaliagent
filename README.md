@@ -53,7 +53,8 @@ bookmark. Running it again while a board is up just opens that board.
   copied instead.
 - **Right-click a card** for an excaliagent section on top of the Excalidraw
   menu: focus or resume, copy the resume command (with or without `cd`), open
-  the PR.
+  the PR, or stop a running session (asks first; the conversation is kept and
+  can be resumed).
 - A **PR link** (GitHub, Bitbucket, GitLab) shows on the card; the card's link
   icon opens it.
 - The board is saved to `$XDG_STATE_HOME/excaliagent/scene.json`
@@ -77,9 +78,10 @@ See `npx excaliagent --help`.
   for an HttpOnly cookie; every request needs it, so other users on the same
   machine stay out. Requests with a
   foreign `Host` (DNS rebinding) or cross-origin writes are refused.
-- Its only actions: focus a herdr pane, raise the terminal window, and start
-  `claude --resume <id>` in a new herdr pane. It never types into a running
-  session.
+- Its only actions: focus a herdr pane, raise the terminal window, start
+  `claude --resume <id>` in a new herdr pane, and stop a session when you ask
+  (right-click → Stop session, confirmed; it exits as if its terminal closed).
+  It never types into a running session.
 - Images you paste onto the board are stored next to the scene, in the
   state directory.
 - The only outside request: Chinese, Japanese or Korean text on the board loads

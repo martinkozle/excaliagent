@@ -32,6 +32,7 @@ function fakeHub() {
     lookup: async (ids) => [...current, session({ id: "d1", live: false, status: "dormant" })].filter((s) => ids.includes(s.id)),
     picker: async () => [session({ id: "d1", live: false, status: "dormant" })],
     focus: vi.fn(async (id: string) => id === "s1"),
+    end: vi.fn(async (id: string) => (id === RESUMABLE ? ("not-live" as const) : id === LIVE ? ("ended" as const) : ("unknown" as const))),
     resume: vi.fn(async (id: string) =>
       id === RESUMABLE ? ("resumed" as const) : id === LIVE ? ("live" as const) : id === NO_HERDR ? ("no-herdr" as const) : ("unknown" as const),
     ),
@@ -217,6 +218,20 @@ describe("api", () => {
     });
     expect(anon.status).toBe(401);
     expect(hub.resume).not.toHaveBeenCalled();
+  });
+
+  it("POST /api/end: 204 ended, 409 not running, 400 bad id; refuses cross-origin", async () => {
+    expect((await send("POST", "/api/end", { sessionId: LIVE })).status).toBe(204);
+    expect(hub.end).toHaveBeenCalledWith(LIVE);
+    expect((await send("POST", "/api/end", { sessionId: RESUMABLE })).status).toBe(409);
+    expect((await send("POST", "/api/end", { sessionId: "x; kill -9 1" })).status).toBe(400);
+    const foreign = await fetch(`${base}/api/end`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json", origin: "http://evil.example" },
+      body: JSON.stringify({ sessionId: LIVE }),
+    });
+    expect(foreign.status).toBe(403);
+    expect(hub.end).toHaveBeenCalledTimes(2);
   });
 
   it("POST /api/focus focuses a session with a pane and 409s otherwise", async () => {

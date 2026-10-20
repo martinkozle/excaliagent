@@ -37,8 +37,17 @@ async function setup(): Promise<{ socketPath: string; fake: FakeHerdr; dir: stri
   return { socketPath: t.socketPath, fake, dir: t.dir };
 }
 
+/** Never the real /proc in unit tests. */
+const noProcesses: ProcessTable = {
+  list: async () => [],
+  parent: async () => undefined,
+  argv: async () => undefined,
+  env: async () => undefined,
+  exe: async () => undefined,
+};
+
 function link(opts: Parameters<typeof createHerdrLink>[0]): ReturnType<typeof createHerdrLink> {
-  const l = createHerdrLink({ retryMinMs: 10, retryMaxMs: 40, requestTimeoutMs: 200, ...opts });
+  const l = createHerdrLink({ retryMinMs: 10, retryMaxMs: 40, requestTimeoutMs: 200, processTable: noProcesses, ...opts });
   cleanups.push(() => l.close());
   return l;
 }
@@ -123,6 +132,22 @@ describe("parsePaneMap", () => {
     expect(map.get(4250)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
     expect(map.get(5310)).toEqual({ paneId: "w2:p3", workspaceId: "w2" });
     expect(map.get(4101)).toBeUndefined(); // shell pid, not in the foreground
+  });
+
+  it("falls back to ancestry: a process under a pane's shell belongs to that pane, even when not in the foreground", () => {
+    const infos = recorded.processInfo.map((ex) => JSON.parse(ex.response).result.process_info);
+    const procs = [
+      { pid: 7000, ppid: 4101, comm: "claude" }, // suspended or behind a foreground child
+      { pid: 7001, ppid: 7000, comm: "bash" },
+      { pid: 4250, ppid: 5101, comm: "x" }, // a foreground pid keeps its foreground pane
+      { pid: 7100, ppid: 1, comm: "claude" }, // not under any pane
+    ];
+    const map = parsePaneMap(infos, undefined, procs);
+    expect(map.get(7000)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
+    expect(map.get(7001)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
+    expect(map.get(4250)).toEqual({ paneId: "w1:p1", workspaceId: "w1" });
+    expect(map.get(7100)).toBeUndefined();
+    expect(map.get(4101)).toBeUndefined(); // the shell itself
   });
 });
 

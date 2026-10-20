@@ -22,9 +22,12 @@ about Claude Code or herdr, write down the version you verified it on.
   in `docs/design.md` ("What the app may change"). Never position, size,
   rotation, grouping or frames of anything the user arranged; never the user's
   own drawings.
-- **Never send input to an agent session.** Focusing a pane and starting
-  `claude --resume <id>` in a *new* pane are the only side effects. Commands are
-  built server-side from validated session ids, never from request bodies.
+- **Never send input to an agent session.** The only side effects: focusing a
+  pane, starting `claude --resume <id>` in a *new* pane, and, after the user
+  confirms, ending a running session with SIGTERM (as if its terminal closed;
+  only to a pid from Claude's registry that is still a `claude` process).
+  Commands and pids are derived server-side from validated session ids, never
+  from request bodies.
 - **Loopback only**, with the access token cookie, Host check and same-origin
   writes on every `/api/*` route. New side-effecting routes get the same checks.
 - **Harness-specific code stays behind interfaces**: `Source`

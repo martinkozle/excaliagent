@@ -89,18 +89,19 @@ describe("resume commands", () => {
 describe("menuItems", () => {
   const labels = (s: Session | undefined, id = "s1") => menuItems(id, s).map((i) => i.label);
 
-  it("live with pane: focus, copies, PR", () => {
+  it("live with pane: focus, copies, PR, then stop (last, it is destructive)", () => {
     const s = session({ prLinks: ["https://github.com/a/b/pull/12"] });
     expect(menuItems("s1", s)).toEqual([
       { action: "focus", label: "Focus pane" },
       { action: "copy", label: "Copy resume command", text: "claude --resume s1" },
       { action: "copy", label: "Copy resume command with cd", text: resumeCommand(s) },
       { action: "open", label: "Open PR #12", url: "https://github.com/a/b/pull/12" },
+      { action: "end", label: "Stop session…" },
     ]);
   });
 
-  it("live without pane: no focus", () => {
-    expect(labels(session({ pane: undefined }))).toEqual(["Copy resume command", "Copy resume command with cd"]);
+  it("live without pane: no focus, but it can be stopped", () => {
+    expect(labels(session({ pane: undefined }))).toEqual(["Copy resume command", "Copy resume command with cd", "Stop session…"]);
   });
 
   it("dormant: resume in herdr first; MR label", () => {
@@ -113,7 +114,7 @@ describe("menuItems", () => {
   });
 
   it("non-standard PR url: generic label", () => {
-    expect(labels(session({ pane: undefined, prLinks: ["https://x.example/y"] })).at(-1)).toBe("Open PR");
+    expect(labels(session({ live: false, status: "dormant", prLinks: ["https://x.example/y"] })).at(-1)).toBe("Open PR");
   });
 });
 

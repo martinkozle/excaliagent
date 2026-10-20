@@ -284,7 +284,7 @@ test("right-clicking a card adds our section beside Excalidraw's menu", async ({
   const ours = page.locator(".excaliagent-menu");
   await expect(theirs).toBeVisible();
   await expect(ours).toBeVisible();
-  await expect(ours.getByRole("menuitem")).toHaveText(["Copy resume command", "Copy resume command with cd", "Open PR #12"]);
+  await expect(ours.getByRole("menuitem")).toHaveText(["Copy resume command", "Copy resume command with cd", "Open PR #12", "Stop session…"]);
   await expectBeside(page);
   await page.screenshot({ path: "test-results/board-card-menu.png" });
 
@@ -292,6 +292,29 @@ test("right-clicking a card adds our section beside Excalidraw's menu", async ({
   await expect(ours).toHaveCount(0);
   await expect(theirs).toHaveCount(0);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`claude --resume ${ID.needsUser}`);
+});
+
+test("Stop session ends a running session after confirming; its card turns dormant", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => card(ID.idleCold)?.backgroundColor).toBe(GREY);
+  const point = await cardPoint(page, ID.idleCold);
+
+  // Cancelling the confirm leaves it running.
+  page.once("dialog", (d) => void d.dismiss());
+  await page.mouse.click(point.x, point.y, { button: "right" });
+  await page.locator(".excaliagent-menu").getByRole("menuitem", { name: "Stop session…" }).click();
+  await page.waitForTimeout(1000);
+  expect(card(ID.idleCold)?.backgroundColor).toBe(GREY);
+
+  let message = "";
+  page.once("dialog", (d) => {
+    message = d.message();
+    void d.accept();
+  });
+  await page.mouse.click(point.x, point.y, { button: "right" });
+  await page.locator(".excaliagent-menu").getByRole("menuitem", { name: "Stop session…" }).click();
+  await expect.poll(() => card(ID.idleCold)?.backgroundColor, { timeout: 10_000 }).toBe(DORMANT);
+  expect(message).toContain("The conversation is kept");
 });
 
 test("right-clicking empty canvas shows only Excalidraw's menu", async ({ page }) => {

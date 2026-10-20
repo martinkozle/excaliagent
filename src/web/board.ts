@@ -57,7 +57,8 @@ export type MenuItem =
   | { action: "focus"; label: string }
   | { action: "resume"; label: string }
   | { action: "copy"; label: string; text: string }
-  | { action: "open"; label: string; url: string };
+  | { action: "open"; label: string; url: string }
+  | { action: "end"; label: string };
 
 /** Our card section of the right-click menu. `s` undefined = session not known (yet). */
 export function menuItems(sessionId: string, s: Session | undefined): MenuItem[] {
@@ -71,6 +72,7 @@ export function menuItems(sessionId: string, s: Session | undefined): MenuItem[]
     const short = shortPr(url);
     items.push({ action: "open", label: /^(PR|MR) /.test(short) ? `Open ${short}` : "Open PR", url });
   }
+  if (s && !isDormant(s)) items.push({ action: "end", label: "Stop session…" });
   return items;
 }
 

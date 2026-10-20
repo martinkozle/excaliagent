@@ -21,7 +21,8 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
   so two servers never overwrite each other's `scene.json`.
 - The **server** reads sessions, links them to herdr panes, streams
   `Session[]` over SSE, stores the scene, and performs the only side effects
-  (focus a pane, resume into a new pane, raise the terminal window).
+  (focus a pane, resume into a new pane, raise the terminal window, end a
+  session the user chose to stop).
 - The **frontend** owns the scene. On every sessions update (and every 30 s, for
   ages and cache minutes) it runs the pure `reconcile` and applies the patches.
 
@@ -149,7 +150,10 @@ registry plus file watching is enough, and "no setup" is a goal.
   `workspace.list`, `tab.list`, `tab.create`, `workspace.create`, `pane.send_text`.
 - `pane.process_info {pane_id}` → `{process_info:{pane_id, shell_pid,
   foreground_process_group_id, foreground_processes:[{pid,name,argv,cmdline,cwd}]}}`.
-  Every foreground pid maps to its pane (exact match).
+  Every foreground pid maps to its pane (exact match). Fallback: every
+  descendant of a pane's `shell_pid` (from the process table) maps to that
+  pane, so a session still matches while a command it runs holds the terminal
+  or while it is suspended (Ctrl+Z). Foreground wins.
 - `workspace.list` → `{workspaces:[{workspace_id,label,…}]}`, `tab.list {}` →
   `{tabs:[{tab_id,workspace_id,label,…}]}` (all tabs). New workspaces default to
   their cwd's folder name, new tabs to their number.
@@ -382,6 +386,7 @@ foreign `Origin` are refused and must be `application/json`.
 | `POST /api/files/get {ids}` | the stored files among `ids` |
 | `POST /api/focus {sessionId}` | 204 · 409 `no pane` |
 | `POST /api/resume {sessionId}` | 204 · 400 bad id · 404 unknown · 409 `live` / `no herdr` |
+| `POST /api/end {sessionId}` | 204 ended (SIGTERM) · 400 bad id · 409 not running · 501 source cannot end |
 
 ## Security
 
@@ -394,7 +399,10 @@ foreign `Origin` are refused and must be `application/json`.
   local users out of your session list and herdr.
 - Host header check (DNS rebinding), same-origin and JSON-only writes (CSRF).
 - Side effects: focus a pane, raise a window, start `claude --resume <id>` in a
-  new pane. Ids are validated; commands are built server-side only.
+  new pane, end a session (`POST /api/end`, after a confirm in the UI: SIGTERM
+  to the registry pid, only if that pid is still a `claude` process, which
+  guards against pid reuse). Ids are validated; commands and pids are derived
+  server-side only.
 - Reads only `~/.claude/sessions`, transcript metadata lines, `.git/HEAD`, and
   `/proc` (for the window raise). Writes only its state dir.
 
