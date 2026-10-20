@@ -106,7 +106,11 @@ Free placement stays the default: nothing snaps on its own.
   where I let go.
 - Right-click a lane → **Tidy cards** stacks the lane's cards in one column
   under its title, in their current top-to-bottom order.
-- Both are a single undoable step. Lanes themselves are never moved or resized.
+- Cards that are locked, rotated, attached to an arrow, or grouped with
+  something else are never moved; the column flows around them.
+- Undo: a tidy is one step; a drop is two (first the snap, back to where I let
+  go; then the drag itself). Lanes themselves are never moved or resized.
+- Right-clicking a note or arrow of mine inside a lane does not offer Tidy.
 - A main-menu toggle turns the drop zone off; the choice is remembered in this
   browser.
 

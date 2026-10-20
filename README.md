@@ -50,9 +50,11 @@ bookmark. Running it again while a board is up just opens that board.
 - **Line cards up in a lane**: drag a card onto a lane's title (the band
   lights up) and it drops into the lane's column, below the lowest card there.
   Dropped anywhere else, a card stays exactly where you put it. Right-click a
-  lane → *Tidy cards* stacks its cards in one column, top to bottom. Both undo
-  with Ctrl+Z. Turn the title drop off in the main menu (*Drop on lane title
-  stacks cards*).
+  lane → *Tidy cards* stacks its cards in one column, top to bottom. Cards
+  that are locked, rotated, attached to an arrow or grouped with something
+  else stay put; the column goes around them. Ctrl+Z undoes a tidy in one
+  step and a drop in two (the snap, then the drag). Turn the title drop off
+  in the main menu (*Drop on lane title stacks cards*).
 - **Dormant sessions** are added from the **Sessions** panel (top right).
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,

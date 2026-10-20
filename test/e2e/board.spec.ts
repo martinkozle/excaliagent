@@ -473,24 +473,45 @@ test.describe("lining cards up in a lane", () => {
     await moveCard(page, ID.busy, lane.x + 20, lane.y + 300);
     await expect.poll(() => card(ID.busy)?.y).toBe(lane.y + 300);
     const busy = card(ID.busy)!;
+    const start = card(ID.needsUser)!;
 
     await drag(page, centre(ID.needsUser), { x: lane.x + lane.width / 2, y: lane.y + 25 }, async () => {
-      await expect(page.locator(".excaliagent-lane-drop-zone")).toBeVisible();
+      // Portalled into Excalidraw's root, in the theme's primary colour.
+      const zone = page.locator(".excalidraw .excaliagent-lane-drop-zone");
+      await expect(zone).toBeVisible();
+      const colours = await zone.evaluate((el) => ({
+        border: getComputedStyle(el).borderTopColor,
+        primary: getComputedStyle(el).getPropertyValue("--color-primary").trim(),
+      }));
+      expect(colours.primary).not.toBe("");
+      const probe = await page.evaluate((c) => {
+        const d = document.createElement("div");
+        d.style.color = c;
+        document.body.append(d);
+        const v = getComputedStyle(d).color;
+        d.remove();
+        return v;
+      }, colours.primary);
+      expect(colours.border).toBe(probe);
       await expect(page.locator(".excaliagent-lane-drop-slot")).toBeVisible();
       await page.screenshot({ path: "test-results/board-lane-drop.png" });
     });
     await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
-    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + busy.height + 20 });
+    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + Math.max(busy.height, 181) + 20 });
     // The card's texts came along.
     const parts = board.savedElements().filter((e) => e.customData?.excaliagent?.cardId === card(ID.needsUser)!.id);
     expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 14 });
     // Lanes are never resized or moved.
     expect(todo()).toMatchObject({ x: lane.x, y: lane.y, width: lane.width, height: lane.height });
 
-    // Undo puts the card back where it was dropped (out of the column).
+    // Undo is two steps: first the snap (back to where it was dropped, on the
+    // lane title), then Excalidraw's own drag (back into the inbox).
     await page.locator(".excalidraw").focus();
     await page.keyboard.press("Control+z");
     await expect.poll(() => card(ID.needsUser)?.y).toBeLessThan(lane.y + 56);
+    expect(card(ID.needsUser)?.x).not.toBe(start.x);
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: start.x, y: start.y });
   });
 
   test("a drop elsewhere in a lane leaves the card where it was dropped", async ({ page }) => {
@@ -519,15 +540,31 @@ test.describe("lining cards up in a lane", () => {
     const ours = page.locator(".excaliagent-menu");
     await expect(ours.getByRole("menuitem")).toHaveText(["Tidy cards"]);
     await ours.getByRole("menuitem", { name: "Tidy cards" }).click();
+    await expect(ours).toHaveCount(0);
 
     const top = lane.y + 56;
     await expect.poll(() => card(ID.idleWarm)).toMatchObject({ x: lane.x + 20, y: top });
     const warm = card(ID.idleWarm)!;
-    expect(card(ID.busy)).toMatchObject({ x: lane.x + 20, y: top + warm.height + 20 });
+    // An app-sized card keeps room for a second title line (CARD_H = 181), like the inbox grid.
+    expect(card(ID.busy)).toMatchObject({ x: lane.x + 20, y: top + Math.max(warm.height, 181) + 20 });
 
     await page.locator(".excalidraw").focus();
     await page.keyboard.press("Control+z");
     await expect.poll(() => card(ID.busy)).toMatchObject({ x: lane.x + 5, y: lane.y + 700 });
+
+    // A user's note inside the lane is not the lane: no Tidy cards there.
+    await page.keyboard.press("Escape");
+    await page.evaluate((l) => {
+      const { excalidraw } = (window as any).__excaliagent;
+      const els = excalidraw.getSceneElementsIncludingDeleted();
+      const note = { ...l, id: "user-note", x: l.x + 60, y: l.y + 620, width: 200, height: 120, backgroundColor: "#fff3bf", customData: undefined, boundElements: null };
+      excalidraw.updateScene({ elements: [...els, note], captureUpdate: "IMMEDIATELY" });
+    }, lane);
+    const onNote = await toView(page, lane.x + 160, lane.y + 680);
+    await page.mouse.click(onNote.x, onNote.y, { button: "right" });
+    await expect(page.locator(".excalidraw .context-menu")).toBeVisible();
+    await page.waitForTimeout(300);
+    await expect(ours).toHaveCount(0);
   });
 
   test("with the setting off, a drop on a lane title does nothing special; it is remembered", async ({ page }) => {

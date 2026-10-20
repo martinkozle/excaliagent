@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CaptureUpdateAction,
   Excalidraw,
@@ -44,7 +45,7 @@ import {
   draggedCard,
   dropLaneAt,
   dropZone,
-  laneAt,
+  laneTargetAt,
   moveCards,
   slotBelow,
   tidyMoves,
@@ -272,7 +273,7 @@ export function App() {
       const elements = excalidraw.getSceneElements();
       const sessionId = cardAt(elements, x, y);
       if (sessionId) return { kind: "card", sessionId };
-      const lane = laneAt(elements, x, y);
+      const lane = laneTargetAt(elements, x, y);
       return lane ? { kind: "lane", laneId: lane.id } : undefined;
     };
     const onDblClick = (event: MouseEvent) => {
@@ -346,10 +347,13 @@ export function App() {
   useEffect(() => {
     const ex = excalidraw;
     if (!ex || !laneDrop) return;
+    // Pointer moves are frequent: re-render (and so re-render <Excalidraw>) only
+    // when the highlighted zone or the target slot actually changes.
     const show = (hint: DropHint | null) => {
       const prev = dropTarget.current;
+      if (hintKey(prev) === hintKey(hint)) return;
       dropTarget.current = hint;
-      if (hint || prev) setDropHint(hint);
+      setDropHint(hint);
     };
     const onMove = (event: PointerEvent) => {
       const appState = ex.getAppState() as AppState;
@@ -428,7 +432,8 @@ export function App() {
     },
     [excalidraw, menuFor, sessionFor, tidyLane],
   );
-  const menuHost = menuFor ? wrapper.current?.querySelector<HTMLElement>(".excalidraw") : null;
+  const excaliHost = menuFor || dropHint ? wrapper.current?.querySelector<HTMLElement>(".excalidraw") : null;
+  const menuHost = menuFor ? excaliHost : null;
 
   const refreshPicker = useCallback(() => {
     api
@@ -531,7 +536,7 @@ export function App() {
           onClose={closeMenu}
         />
       )}
-      {dropHint && <LaneDropHint hint={dropHint} />}
+      {dropHint && excaliHost && <LaneDropHint hint={dropHint} host={excaliHost} />}
     </div>
   );
 }
@@ -546,13 +551,22 @@ function checkbox(on: boolean) {
   );
 }
 
+/** Identity of a drop hint, rounded to whole px, so sub-pixel jitter does not re-render. */
+function hintKey(h: DropHint | null): string {
+  if (!h) return "";
+  const r = (b: ViewBox) => [b.left, b.top, b.width, b.height].map(Math.round).join(",");
+  return `${h.laneId}|${h.cardId}|${r(h.zone)}|${r(h.slot)}`;
+}
+
 /**
  * Not a scene element: a temporary overlay (pointer-events: none) over the lane
- * title band being hovered with a card, plus a dashed outline where the card will land.
+ * title band being hovered with a card, plus a dashed outline where the card
+ * will land. Portalled into the `.excalidraw` root (like CardMenu) so it uses
+ * the theme's colours in light and dark mode.
  */
-function LaneDropHint({ hint }: { hint: DropHint }) {
+function LaneDropHint({ hint, host }: { hint: DropHint; host: HTMLElement }) {
   const box = (b: ViewBox) => ({ position: "fixed", left: b.left, top: b.top, width: b.width, height: b.height }) as const;
-  return (
+  return createPortal(
     <div className="excaliagent-lane-drop" aria-hidden="true" style={{ pointerEvents: "none", position: "fixed", inset: 0, zIndex: 2 }}>
       <div
         className="excaliagent-lane-drop-zone"
@@ -560,9 +574,9 @@ function LaneDropHint({ hint }: { hint: DropHint }) {
           ...box(hint.zone),
           boxSizing: "border-box",
           borderRadius: 8,
-          border: "2px solid #4c6ef5",
-          background: "rgba(76, 110, 245, 0.18)",
-          boxShadow: "0 0 0 4px rgba(76, 110, 245, 0.12)",
+          border: "2px solid var(--color-primary)",
+          background: "color-mix(in srgb, var(--color-primary) 22%, transparent)",
+          boxShadow: "0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent)",
         }}
       />
       <div
@@ -571,11 +585,12 @@ function LaneDropHint({ hint }: { hint: DropHint }) {
           ...box(hint.slot),
           boxSizing: "border-box",
           borderRadius: 8,
-          border: "2px dashed #4c6ef5",
-          background: "rgba(76, 110, 245, 0.06)",
+          border: "2px dashed var(--color-primary)",
+          background: "color-mix(in srgb, var(--color-primary) 8%, transparent)",
         }}
       />
-    </div>
+    </div>,
+    host,
   );
 }
 

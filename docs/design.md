@@ -275,7 +275,8 @@ re-fitted, so a late font load cannot leave clipped text.
   (40, 80): 660×1664, i.e. 2 cards wide × 8 rows (20 px gaps) under a 56 px
   header (`AREA_HEADER`). The user moves and resizes it. New cards take the
   first free grid slot inside its current bounds, below the header (`nextSlot`;
-  rows are as tall as a two-line card, so a card can grow into its row:
+  rows are as tall as a two-line card, so a card can grow into its row; lane
+  columns reserve the same room, see "Column spacing" below:
   columns = what fits the width, row-major, skipping any slot that overlaps a
   non-deleted card); when full, rows continue below it. Existing
   inboxes keep whatever size they have (older boards: 980×824, 3 columns).
@@ -338,8 +339,14 @@ the same array.
 
 Reconcile never moves a card. The only code that does is the lane drop zone
 and "Tidy cards" (Interactions), each the direct result of one user gesture
-on one lane, as one undoable edit; they change only x/y of card rects and
-their own group's parts, never lanes or anything the user drew.
+on one lane, as an undoable edit of its own; they change only x/y of card
+rects and their own group's parts, never lanes or anything the user drew.
+**Fixed cards** (`isFixedCard`) are never moved: locked, rotated (`angle` ≠
+0), bound to an arrow (an arrow id in the rect's `boundElements`; moving the
+card would leave the user's arrow behind, and the app never edits user
+drawings), or in a user group (`groupIds.length > 1`). They stay where they
+are as obstacles: the column flows around and below them (rotated ones by
+their rotated bounds), and a fixed card being dragged is never placed.
 
 ### Interactions
 
@@ -384,18 +391,30 @@ their own group's parts, never lanes or anything the user drew.
   (Excalidraw's `onPointerUp` API, then a `setTimeout(0)` so Excalidraw has
   committed its drag first), the card group moves to `slotBelow`: x = lane x +
   `GAP`, y = below the lowest other card whose centre is inside the lane
-  (+`GAP`), or right under the header. Lanes are never grown. One edit with
-  `CaptureUpdateAction.IMMEDIATELY`: undo puts the card back where it was
-  dropped. Alt held (Excalidraw's duplicate-drag) opts out.
+  (+`GAP`), or right under the header. Lanes are never grown. Its own edit with
+  `CaptureUpdateAction.IMMEDIATELY`, after Excalidraw's drag edit, so undo
+  takes two steps: the first puts the card back where it was dropped, the
+  second undoes the drag. Alt held (Excalidraw's duplicate-drag) opts out.
+  The overlay is portalled into the `.excalidraw` root (like the card menu)
+  and coloured with `var(--color-primary)`, so it follows the light/dark
+  theme. The App re-renders only when the zone or target slot changes (to the
+  whole px), not on every pointer move.
+- **Column spacing** (`slotBelow`, `tidyMoves`): a card that still has its
+  app-set height (`appHeight`, ±0.5 px) takes `max(height, CARD_H)`, so a
+  one-line card keeps room to grow a second title line, as in the inbox grid;
+  a card the user resized takes its own height.
 - **No modifier key** for "stack anywhere over a lane": in Excalidraw 0.18.1
   every modifier already means something during a drag. Shift locks the axis,
   Alt duplicates, Ctrl/Cmd toggles object snapping (and at pointer-down starts a
   box selection instead of a drag); Meta/Super is the window manager's on
   Linux (Hyprland, Sway). Checked in `dist/dev/index.js` of 0.18.1.
-- **Tidy cards** (right-click inside a lane, not on a card: our menu section
-  then holds this one item): `tidyMoves` stacks the cards whose centre is in
-  the lane in one column under the header, sorted by y (then x), `GAP` apart,
-  each at its own height. One undoable edit, as above.
+- **Tidy cards** (right-click inside a lane where nothing drawn above the
+  lane but its own title is under the pointer, `laneTargetAt`, using each
+  element's rotated or point bounds; elements below the lane do not count. Our
+  menu section then holds this one item): `tidyMoves` stacks the movable cards
+  whose centre is in the lane in one column under the header, sorted by y
+  (then x), `GAP` apart with the column spacing above; a slot that would
+  overlap a fixed card moves below it. One undoable edit.
 - **Setting**: main menu → "Drop on lane title stacks cards" (a checkbox item,
   on by default) turns the drop zone off. Stored per browser in `localStorage`
   (`excaliagent.laneDrop` = `on`/`off`); every access is wrapped in try/catch,

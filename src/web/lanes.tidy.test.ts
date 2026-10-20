@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { AREA_HEADER, CARD_H, cardHeight, makeCard } from "./cards.ts";
+import { AREA_HEADER, CARD_H, makeCard } from "./cards.ts";
 import { GAP } from "./inbox.ts";
-import { cardsInLane, draggedCard, dropLaneAt, laneAt, makeLanes, moveCards, slotBelow, tidyMoves } from "./lanes.ts";
+import {
+  cardsInLane,
+  draggedCard,
+  dropLaneAt,
+  isFixedCard,
+  laneAt,
+  laneTargetAt,
+  makeLanes,
+  moveCards,
+  slotBelow,
+  tidyMoves,
+} from "./lanes.ts";
 import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
 
 const gen = testGen();
@@ -11,7 +22,9 @@ const [todo, doing] = lanes as [ExcalidrawElement, ExcalidrawElement];
 const card = (id: string, x: number, y: number) => makeCard(session({ id }), { x, y }, gen, NOW) as ExcalidrawElement[];
 const rectOf = (els: readonly ExcalidrawElement[], id: string) =>
   els.find((e) => e.type === "rectangle" && e.customData?.excaliagent?.sessionId === id)!;
-const H1 = cardHeight(1);
+/** The card with its rect changed. */
+const with_ = (c: ExcalidrawElement[], over: Partial<ExcalidrawElement>) =>
+  c.map((e, i) => (i === 0 ? ({ ...e, ...over } as ExcalidrawElement) : e));
 
 describe("laneAt / dropLaneAt", () => {
   it("finds the lane containing a point, topmost first; not the inbox, not deleted lanes", () => {
@@ -43,18 +56,78 @@ describe("cardsInLane / slotBelow", () => {
     expect(slotBelow(lanes, todo)).toEqual({ x: todo.x + GAP, y: todo.y + AREA_HEADER });
   });
 
-  it("below the lowest card in the lane (its actual height), ignoring the dragged one and other lanes", () => {
+  it("below the lowest card in the lane, ignoring the dragged one and other lanes", () => {
     const a = card("a", todo.x + 20, todo.y + 100);
     const b = card("b", todo.x + 40, todo.y + 700);
     const dragged = card("d", todo.x + 20, todo.y + 1200);
     const elsewhere = card("e", doing.x + 20, doing.y + 1400);
     const els = [...lanes, ...a, ...b, ...dragged, ...elsewhere];
-    expect(slotBelow(els, todo, dragged[0]!.id)).toEqual({ x: todo.x + GAP, y: todo.y + 700 + H1 + GAP });
+    // b still has its app-set (one-line) height: room is kept for a second title line.
+    expect(slotBelow(els, todo, dragged[0]!.id)).toEqual({ x: todo.x + GAP, y: todo.y + 700 + CARD_H + GAP });
+  });
+
+  it("a card the user resized counts with its own height", () => {
+    const b = with_(card("b", todo.x + 40, todo.y + 700), { height: 120 });
+    expect(slotBelow([...lanes, ...b], todo).y).toBe(todo.y + 700 + 120 + GAP);
+    const tall = with_(card("t", todo.x + 40, todo.y + 700), { height: CARD_H + 60 });
+    expect(slotBelow([...lanes, ...tall], todo).y).toBe(todo.y + 700 + CARD_H + 60 + GAP);
+  });
+
+  it("a fixed card counts as an obstacle too; a rotated one by its rotated bounds", () => {
+    const quarter = with_(card("r", todo.x + 20, todo.y + 700), { angle: (Math.PI / 2) as ExcalidrawElement["angle"] });
+    const r = quarter[0]!;
+    // Turned 90°: as tall as it was wide, around the same centre.
+    expect(slotBelow([...lanes, ...quarter], todo).y).toBeCloseTo(r.y + r.height / 2 + r.width / 2 + GAP);
   });
 
   it("a full lane: still just below the lowest card, past the lane's bottom", () => {
     const low = card("low", todo.x + 20, todo.y + todo.height - 100);
-    expect(slotBelow([...lanes, ...low], todo).y).toBe(todo.y + todo.height - 100 + H1 + GAP);
+    expect(slotBelow([...lanes, ...low], todo).y).toBe(todo.y + todo.height - 100 + CARD_H + GAP);
+  });
+});
+
+describe("fixed cards", () => {
+  const FIXED: Array<[string, Partial<ExcalidrawElement>]> = [
+    ["locked", { locked: true }],
+    ["rotated", { angle: 0.2 as ExcalidrawElement["angle"] }],
+    ["bound to an arrow", { boundElements: [{ type: "arrow", id: "user-arrow" }] }],
+    ["in a user group", { groupIds: ["card-grp", "user-grp"] }],
+  ];
+
+  it("a plain card is movable", () => {
+    expect(isFixedCard(card("a", 0, 0)[0]!)).toBe(false);
+  });
+
+  for (const [what, over] of FIXED) {
+    it(`a card ${what} is fixed: tidy and drops flow around it, never move it`, () => {
+      const top = todo.y + AREA_HEADER;
+      const f = with_(card("f", todo.x + 60, top + 50), over);
+      expect(isFixedCard(f[0]!)).toBe(true);
+      const a = card("a", todo.x + 5, todo.y + 900);
+      const b = card("b", todo.x + 30, todo.y + 10 + AREA_HEADER);
+      const els = [...lanes, ...a, ...b, ...f];
+      const moves = tidyMoves(els, todo);
+      expect(moves.has(f[0]!.id)).toBe(false);
+      // b would overlap f at the top: it goes below f instead; a follows b.
+      // An app-sized fixed card keeps room for a second title line, too.
+      const fBottom = what === "rotated" ? undefined : f[0]!.y + CARD_H;
+      const bY = moves.get(b[0]!.id)!.y;
+      if (fBottom !== undefined) expect(bY).toBe(fBottom + GAP);
+      else expect(bY).toBeGreaterThan(f[0]!.y + f[0]!.height);
+      expect(moves.get(a[0]!.id)).toEqual({ x: todo.x + GAP, y: bY + CARD_H + GAP });
+      // A dragged fixed card is never placed.
+      const sel = Object.fromEntries(f.map((e) => [e.id, true as const]));
+      expect(draggedCard(els, sel)).toBeUndefined();
+    });
+  }
+
+  it("a movable card that fits above a fixed one stays above it", () => {
+    const top = todo.y + AREA_HEADER;
+    const f = with_(card("f", todo.x + GAP, top + CARD_H + GAP + 300), { locked: true });
+    const b = card("b", todo.x + 30, todo.y + 900);
+    const moves = tidyMoves([...lanes, ...b, ...f], todo);
+    expect(moves.get(b[0]!.id)).toEqual({ x: todo.x + GAP, y: top });
+    expect(moves.has(f[0]!.id)).toBe(false);
   });
 });
 
@@ -62,7 +135,7 @@ describe("tidyMoves", () => {
   it("stacks the lane's cards top-down in their current vertical order, one column, GAP apart", () => {
     const a = card("a", todo.x + 5, todo.y + 900);
     const b = card("b", todo.x + 30, todo.y + 200);
-    const tall = card("c", todo.x + 10, todo.y + 500).map((e, i) => (i === 0 ? { ...e, height: CARD_H + 40 } : e));
+    const tall = with_(card("c", todo.x + 10, todo.y + 500), { height: CARD_H + 40 });
     const other = card("o", doing.x + 20, doing.y + 600);
     const els = [...lanes, ...a, ...b, ...tall, ...other];
     const moves = tidyMoves(els, todo);
@@ -71,15 +144,39 @@ describe("tidyMoves", () => {
     const want = new Map<string, { x: number; y: number }>();
     for (const r of [b[0]!, tall[0]!, a[0]!]) {
       want.set(r.id, { x, y });
-      y += (r.id === tall[0]!.id ? CARD_H + 40 : H1) + GAP;
+      // App-sized cards keep room for a second title line (like the inbox grid); resized ones use their height.
+      y += (r.id === tall[0]!.id ? CARD_H + 40 : CARD_H) + GAP;
     }
     expect(moves).toEqual(want);
   });
 
   it("leaves out cards already in place; nothing to do → empty", () => {
     const a = card("a", todo.x + GAP, todo.y + AREA_HEADER);
-    const b = card("b", todo.x + GAP, todo.y + AREA_HEADER + H1 + GAP);
+    const b = card("b", todo.x + GAP, todo.y + AREA_HEADER + CARD_H + GAP);
     expect(tidyMoves([...lanes, ...a, ...b], todo).size).toBe(0);
+  });
+});
+
+describe("laneTargetAt (right-click → Tidy cards)", () => {
+  const label = { ...lanes[0]!, id: "label", type: "text", customData: { excaliagent: { kind: "lane-label" } }, containerId: todo.id, x: todo.x + 100, y: todo.y + 5, width: 80, height: 35 } as unknown as ExcalidrawElement;
+  const note = { ...lanes[0]!, id: "note", customData: undefined, x: todo.x + 50, y: todo.y + 400, width: 100, height: 100 } as ExcalidrawElement;
+  const arrow = {
+    ...lanes[0]!, id: "arrow", type: "arrow", customData: undefined,
+    x: todo.x + 200, y: todo.y + 800, width: 100, height: 100, points: [[0, 0], [-100, 100]],
+  } as unknown as ExcalidrawElement;
+  const backdrop = { ...note, id: "backdrop", x: todo.x - 500, y: todo.y - 500, width: 5000, height: 5000 } as ExcalidrawElement;
+
+  it("the lane, when only the lane or its title is under the pointer", () => {
+    const els = [backdrop, ...lanes, label, note, arrow];
+    expect(laneTargetAt(els, todo.x + 30, todo.y + 1200)?.id).toBe(todo.id);
+    expect(laneTargetAt(els, todo.x + 120, todo.y + 20)?.id).toBe(todo.id);
+  });
+
+  it("nothing over a user's note or arrow inside the lane (elements drawn below the lane do not count)", () => {
+    const els = [backdrop, ...lanes, label, note, arrow];
+    expect(laneTargetAt(els, todo.x + 60, todo.y + 450)).toBeUndefined();
+    expect(laneTargetAt(els, todo.x + 150, todo.y + 850)).toBeUndefined();
+    expect(laneTargetAt(els, todo.x - 5, todo.y + 450)).toBeUndefined(); // not in a lane
   });
 });
 
