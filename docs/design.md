@@ -36,7 +36,7 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 | Notes | Free elements the user places; the app only writes its own card elements | Simple patching, user content never touched |
 | Loudest signal | needs input (`needs_user`, `waiting`, `needs_trust`, `blocked`), then idle + warm cache | "Review me before the cache goes cold" |
 | Stack | Node/TypeScript; server has zero runtime deps; Vite + React + `@excalidraw/excalidraw` | One toolchain; `npx` stays light |
-| Fonts | All Excalidraw fonts are served locally (`EXCALIDRAW_ASSET_PATH = "/"`) | Full Excalidraw, also offline |
+| Fonts | Excalidraw fonts except Xiaolai (CJK) are served locally (`EXCALIDRAW_ASSET_PATH = "/"`); Xiaolai loads from Excalidraw's default CDN | Keeps offline Latin text, ~3 MB package |
 | Runtime | Node (not Bun) | `npx` works wherever Claude Code does |
 
 ## Session model
