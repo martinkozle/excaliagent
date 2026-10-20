@@ -9,7 +9,7 @@ blocked on a colleague, come back to, done) and draw anything around them. The
 app keeps each card's **color and label** in sync with the session (and its
 height fitted to a one- or two-line title, until you resize the card yourself)
 and never moves, resizes, or edits anything else on its own; cards move only
-when you drop one on a lane title or ask a lane to tidy up.
+when you drop one on a lane title or ask for a tidy-up.
 
 ```
 Fix flaky checkout test       ✳   ← title (handwritten, larger), harness logo
@@ -51,11 +51,15 @@ bookmark. Running it again while a board is up just opens that board.
   faint *drop to stack* hint; drop the card on one (it lights up) and the card
   goes into the lane's column, below the lowest card there.
   Dropped anywhere else, a card stays exactly where you put it. Right-click a
-  lane → *Tidy cards* stacks its cards in one column, top to bottom. Cards
+  lane → *Tidy cards* stacks its cards in one column, top to bottom (on the
+  inbox it packs its columns). **Tidy all** (top right, or the main menu)
+  does every lane and the inbox at once. Stacked cards are always 20 px
+  apart; if a title later grows a second line, its card may overlap the one
+  below a little until you tidy again. Cards
   that are locked, rotated, attached to an arrow or grouped with something
-  else stay put; the column goes around them. Ctrl+Z undoes a tidy in one
-  step and a drop in two (the snap, then the drag). Turn the title drop off
-  in the main menu (*Drop on lane title stacks cards*).
+  else stay put; the column goes around them. Ctrl+Z undoes a tidy (or Tidy
+  all) in one step and a drop in two (the snap, then the drag). Turn the
+  title drop off in the main menu (*Drop on lane title stacks cards*).
 - **Dormant sessions** are added from the **Sessions** panel (top right).
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,

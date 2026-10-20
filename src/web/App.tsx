@@ -50,6 +50,7 @@ import {
   laneTargetAt,
   moveCards,
   slotBelow,
+  tidyAllMoves,
   tidyMoves,
 } from "./lanes.ts";
 
@@ -344,6 +345,15 @@ export function App() {
     [excalidraw, placeCards],
   );
 
+  /** "Tidy all" (top right and main menu): every lane and the inbox at once, one undoable edit. */
+  const tidyAll = useCallback(() => {
+    const ex = excalidraw;
+    if (!ex) return;
+    const moves = tidyAllMoves(ex.getSceneElements());
+    if (!moves.size) ex.setToast({ message: "Every card is already tidy.", duration: 2000, closable: true });
+    placeCards(moves);
+  }, [excalidraw, placeCards]);
+
   // Drag a lone card over a lane's title band: the band lights up and an outline
   // shows where the card will land; dropping it there puts it in the lane's
   // column, below the lowest card. Alt (Excalidraw's duplicate-drag) opts out.
@@ -484,6 +494,14 @@ export function App() {
             <button type="button" className="sidebar-trigger" title="Add a lane at the right end" onClick={addOneLane}>
               + Lane
             </button>
+            <button
+              type="button"
+              className="sidebar-trigger"
+              title="Stack the cards of every lane and the inbox (one undo step)"
+              onClick={tidyAll}
+            >
+              Tidy all
+            </button>
             <Sidebar.Trigger
               name={PICKER}
               title="Add a dormant session to the board"
@@ -496,6 +514,9 @@ export function App() {
       >
         <MainMenu>
           <MainMenu.Item onSelect={addLanes}>Add starter lanes</MainMenu.Item>
+          <MainMenu.Item onSelect={tidyAll} title="Stack the cards of every lane and the inbox (one undo step)">
+            Tidy all
+          </MainMenu.Item>
           <MainMenu.Item
             onSelect={toggleLaneDrop}
             icon={checkbox(laneDrop)}

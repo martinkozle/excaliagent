@@ -25,7 +25,8 @@ about Claude Code or herdr, write down the version you verified it on.
   height the app gave it, `appHeight`, and is unrotated; once the user
   resizes it, it is theirs.)
   The app moves cards in exactly one situation: as the direct result of a user
-  gesture on a lane (dropping a card on its title band, or "Tidy cards"), as
+  gesture to line cards up (dropping a card on a lane's title band, "Tidy
+  cards" on a lane or the inbox, or "Tidy all"), as
   an undoable edit of its own, and only free card elements (never locked,
   rotated, arrow-bound or user-grouped cards). Nothing moves on its own:
   reconcile and status changes never move anything.

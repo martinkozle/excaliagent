@@ -272,14 +272,19 @@ re-fitted, so a late font load cannot leave clipped text.
 - **Inbox**: a grey dashed, transparent rectangle with
   `customData.excaliagent = {kind:"inbox"}` and the title "Inbox" bound inside
   it (`{kind:"inbox-label"}`, see titles below). New boards get a tall one at
-  (40, 80): 660×1664, i.e. 2 cards wide × 8 rows (20 px gaps) under a 56 px
-  header (`AREA_HEADER`). The user moves and resizes it. New cards take the
-  first free grid slot inside its current bounds, below the header (`nextSlot`;
-  rows are as tall as a two-line card, so a card can grow into its row; lane
-  columns reserve the same room, see "Column spacing" below:
-  columns = what fits the width, row-major, skipping any slot that overlaps a
-  non-deleted card); when full, rows continue below it. Existing
+  (40, 80): 660×1664, i.e. 2 columns of 8 two-line cards (20 px gaps) under a 56 px
+  header (`AREA_HEADER`). The user moves and resizes it. New cards go in
+  its columns (`columnsOf`: as many 300 px columns as fit the current width,
+  20 px from the left edge and apart), each column stacked on its own
+  (`nextSlot` → `firstFree` in `src/web/inbox.ts`): a spot is free when the
+  new card, as tall as its title needs, stays at least `GAP` (20) clear of
+  every non-deleted card (by its rotated bounds) above and below it. The
+  candidates are the top under the header and `GAP` below each card in the
+  column; the topmost free one wins, the leftmost column on a tie, so cards
+  fill the columns side by side and a hole is reused only if the card fits
+  it fully. When full, the columns continue below the inbox. Existing
   inboxes keep whatever size they have (older boards: 980×824, 3 columns).
+  See "Column spacing" below for the trade-off of gaps by actual height.
 - **Starter lanes** (Kanban): 8 rectangles one card wide (340 = 300 + 2×20),
   same height as the inbox, 40 px apart, starting 40 px right of the inbox and
   top-aligned with it. Same grey dashed transparent look. The first six are
@@ -293,8 +298,8 @@ re-fitted, so a late font load cannot leave clipped text.
   lane has no text element (Excalidraw drops empty bound text). Boards from
   before 0.3.0 keep their free titles above the boxes; the app never rewrites
   lanes. Reconcile only ever places cards in the inbox; moving them between
-  lanes is the user's job, helped by the lane drop zone and "Tidy cards"
-  (below), which move cards only in direct response to the user's gesture.
+  lanes is the user's job, helped by the lane drop zone, "Tidy cards" and
+  "Tidy all" (below), which move cards only in direct response to the user's gesture.
 - **When they are created**: when reconcile needs an inbox and the board has
   neither an inbox nor any lane, it creates the whole template (inbox + lanes) in
   one go. If lanes exist but the inbox was deleted, only the inbox is recreated.
@@ -337,9 +342,9 @@ the same array.
   a taller one keeps its height.
 - App patches use `CaptureUpdateAction.NEVER`: undo only undoes the user's edits.
 
-Reconcile never moves a card. The only code that does is the lane drop zone
-and "Tidy cards" (Interactions), each the direct result of one user gesture
-on one lane, as an undoable edit of its own; they change only x/y of card
+Reconcile never moves a card. The only code that does is the lane drop zone,
+"Tidy cards" and "Tidy all" (Interactions), each the direct result of one
+user gesture, as an undoable edit of its own; they change only x/y of card
 rects and their own group's parts, never lanes or anything the user drew.
 **Fixed cards** (`isFixedCard`) are never moved: locked, rotated (`angle` ≠
 0), bound to an arrow (an arrow id in the rect's `boundElements`; moving the
@@ -366,15 +371,17 @@ their rotated bounds), and a fixed card being dragged is never placed.
   the event bubble, so Excalidraw closes its menu and ours follows.
 - **Main menu**: Excalidraw's `<MainMenu>` with all of its default items
   re-listed (`MainMenu.DefaultItems.*`, as Excalidraw's own default menu) plus
-  "Add starter lanes" at the top. It appends the lanes beside the current
-  inbox's bounds (`appendLanes`; toast if there is no inbox) as a normal
-  undoable edit (`CaptureUpdateAction.IMMEDIATELY`), unlike reconcile's patches.
+  "Add starter lanes" and "Tidy all" at the top. "Add starter lanes" appends
+  the lanes beside the current inbox's bounds (`appendLanes`; toast if there
+  is no inbox) as a normal undoable edit (`CaptureUpdateAction.IMMEDIATELY`),
+  unlike reconcile's patches. "Tidy all" is below.
 - **Reset the canvas** (Excalidraw's own main menu item): an empty scene
   triggers a sync at once, so reconcile lays out the starter board with the
   live sessions instead of waiting for the next 30 s tick.
 - **+ Lane** (top right, beside "Sessions"): `addLane` appends one lane right
   of the rightmost lane or inbox, top-aligned with it and as tall, titled "New
-  lane"; the same kind of undoable edit, then scrolled into view.
+  lane"; the same kind of undoable edit, then scrolled into view. Beside it,
+  **Tidy all** (same button style; also in the main menu).
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
 - **Lane drop zone** (`src/web/lanes.ts`: `dropZone`, `dropLaneAt`,
@@ -395,8 +402,8 @@ their rotated bounds), and a fixed card being dragged is never placed.
   button is released anywhere, or when the drag stops qualifying. On drop
   (Excalidraw's `onPointerUp` API, then a `setTimeout(0)` so Excalidraw has
   committed its drag first), the card group moves to `slotBelow`: x = lane x +
-  `GAP`, y = below the lowest other card whose centre is inside the lane
-  (+`GAP`), or right under the header. Lanes are never grown. Its own edit with
+  `GAP`, y = `GAP` below the actual bottom of the lowest other card whose
+  centre is inside the lane, or right under the header. Lanes are never grown. Its own edit with
   `CaptureUpdateAction.IMMEDIATELY`, after Excalidraw's drag edit, so undo
   takes two steps: the first puts the card back where it was dropped, the
   second undoes the drag. Alt held (Excalidraw's duplicate-drag) opts out.
@@ -404,26 +411,40 @@ their rotated bounds), and a fixed card being dragged is never placed.
   and coloured with `var(--color-primary)`, so it follows the light/dark
   theme. The App re-renders only when the visible bands, the hovered zone or
   the target slot change (to the whole px), not on every pointer move.
-- **Column spacing** (`slotBelow`, `tidyMoves`): a card that still has its
-  app-set height (`appHeight`, ±0.5 px) takes `max(height, CARD_H)`, so a
-  one-line card keeps room to grow a second title line, as in the inbox grid;
-  a card the user resized takes its own height.
+- **Column spacing** (`slotBelow`, `tidyMoves`, `nextSlot`): cards in a
+  column are always exactly `GAP` (20) apart, measured from the actual
+  bottom of the card above (its rotated bounds for a fixed card), whether it
+  has one title line or two or was resized. No room is reserved for a title
+  to grow. Trade-off, chosen for even spacing: when a title later wraps onto
+  a second line, its card grows by one title line (25 px) and overlaps the
+  card below by about 5 px. The app never moves cards on its own, so it
+  stays that way until the user runs Tidy cards / Tidy all again, which
+  restores the gaps.
 - **No modifier key** for "stack anywhere over a lane": in Excalidraw 0.18.1
   every modifier already means something during a drag. Shift locks the axis,
   Alt duplicates, Ctrl/Cmd toggles object snapping (and at pointer-down starts a
   box selection instead of a drag); Meta/Super is the window manager's on
   Linux (Hyprland, Sway). Checked in `dist/dev/index.js` of 0.18.1.
-- **Tidy cards** (right-click inside a lane where nothing drawn above the
-  lane but its own title is under the pointer, `laneTargetAt`, using each
-  element's rotated or point bounds; elements below the lane do not count. Our
-  menu section then holds this one item): `tidyMoves` stacks the movable cards
-  whose centre is in the lane in one column under the header, sorted by y
-  (then x), `GAP` apart with the column spacing above; a slot that would
-  overlap a fixed card moves below it. One undoable edit.
+- **Tidy cards** (right-click inside a lane, or the inbox, where nothing
+  drawn above it but its own title is under the pointer, `laneTargetAt`,
+  using each element's rotated or point bounds; elements below it do not
+  count. Our menu section then holds this one item): `tidyMoves` takes the
+  movable cards whose centre is in the area, sorted by y (then x). In a lane
+  they stack in one column under the header, strictly top-down, with the
+  column spacing above. In the inbox each card in turn takes the first free
+  spot of the inbox's columns (`firstFree`, the same rule as new cards), so
+  the grid is compacted in reading order. A spot that would come within
+  `GAP` of a fixed card moves below it. One undoable edit.
+- **Tidy all** (button beside "+ Lane", and the main menu): `tidyAllMoves`,
+  i.e. `tidyMoves` for every lane and the inbox, merged into one move map
+  (a card inside two overlapping areas goes with the first in scene order)
+  and applied as one undoable edit, so a single Ctrl+Z puts every card back.
+  The inbox is included because it follows the same column rule; a toast
+  says so when everything is already tidy.
 - **Setting**: main menu → "Drop on lane title stacks cards" (a checkbox item,
   on by default) turns the drop zone off. Stored per browser in `localStorage`
   (`excaliagent.laneDrop` = `on`/`off`); every access is wrapped in try/catch,
-  and unreadable storage means on. "Tidy cards" is always available.
+  and unreadable storage means on. "Tidy cards" and "Tidy all" are always available.
 
 ### Saving
 

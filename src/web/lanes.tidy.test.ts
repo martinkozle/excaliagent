@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { AREA_HEADER, CARD_H, makeCard } from "./cards.ts";
+import { AREA_HEADER, CARD_H, CARD_W, makeCard, makeInbox } from "./cards.ts";
 import { GAP } from "./inbox.ts";
 import {
   cardsInLane,
@@ -14,6 +14,7 @@ import {
   makeLanes,
   moveCards,
   slotBelow,
+  tidyAllMoves,
   tidyMoves,
 } from "./lanes.ts";
 import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
@@ -64,8 +65,9 @@ describe("cardsInLane / slotBelow", () => {
     const dragged = card("d", todo.x + 20, todo.y + 1200);
     const elsewhere = card("e", doing.x + 20, doing.y + 1400);
     const els = [...lanes, ...a, ...b, ...dragged, ...elsewhere];
-    // b still has its app-set (one-line) height: room is kept for a second title line.
-    expect(slotBelow(els, todo, dragged[0]!.id)).toEqual({ x: todo.x + GAP, y: todo.y + 700 + CARD_H + GAP });
+    // GAP below b's actual (one-line) bottom: no room is reserved for a second title line.
+    expect(b[0]!.height).toBeLessThan(CARD_H);
+    expect(slotBelow(els, todo, dragged[0]!.id)).toEqual({ x: todo.x + GAP, y: todo.y + 700 + b[0]!.height + GAP });
   });
 
   it("a card the user resized counts with its own height", () => {
@@ -84,7 +86,7 @@ describe("cardsInLane / slotBelow", () => {
 
   it("a full lane: still just below the lowest card, past the lane's bottom", () => {
     const low = card("low", todo.x + 20, todo.y + todo.height - 100);
-    expect(slotBelow([...lanes, ...low], todo).y).toBe(todo.y + todo.height - 100 + CARD_H + GAP);
+    expect(slotBelow([...lanes, ...low], todo).y).toBe(todo.y + todo.height - 100 + low[0]!.height + GAP);
   });
 });
 
@@ -110,13 +112,12 @@ describe("fixed cards", () => {
       const els = [...lanes, ...a, ...b, ...f];
       const moves = tidyMoves(els, todo);
       expect(moves.has(f[0]!.id)).toBe(false);
-      // b would overlap f at the top: it goes below f instead; a follows b.
-      // An app-sized fixed card keeps room for a second title line, too.
-      const fBottom = what === "rotated" ? undefined : f[0]!.y + CARD_H;
+      // b would overlap f at the top: it goes GAP below f's actual bottom instead; a follows b.
+      const fBottom = what === "rotated" ? undefined : f[0]!.y + f[0]!.height;
       const bY = moves.get(b[0]!.id)!.y;
       if (fBottom !== undefined) expect(bY).toBe(fBottom + GAP);
       else expect(bY).toBeGreaterThan(f[0]!.y + f[0]!.height);
-      expect(moves.get(a[0]!.id)).toEqual({ x: todo.x + GAP, y: bY + CARD_H + GAP });
+      expect(moves.get(a[0]!.id)).toEqual({ x: todo.x + GAP, y: bY + b[0]!.height + GAP });
       // A dragged fixed card is never placed.
       const sel = Object.fromEntries(f.map((e) => [e.id, true as const]));
       expect(draggedCard(els, sel)).toBeUndefined();
@@ -130,6 +131,14 @@ describe("fixed cards", () => {
     const moves = tidyMoves([...lanes, ...b, ...f], todo);
     expect(moves.get(b[0]!.id)).toEqual({ x: todo.x + GAP, y: top });
     expect(moves.has(f[0]!.id)).toBe(false);
+  });
+
+  it("a card that would come within GAP of a fixed card below it goes below that card", () => {
+    const top = todo.y + AREA_HEADER;
+    const b = card("b", todo.x + 30, todo.y + 900);
+    const f = with_(card("f", todo.x + GAP, top + b[0]!.height + GAP - 1), { locked: true });
+    const moves = tidyMoves([...lanes, ...b, ...f], todo);
+    expect(moves.get(b[0]!.id)).toEqual({ x: todo.x + GAP, y: f[0]!.y + f[0]!.height + GAP });
   });
 });
 
@@ -146,16 +155,69 @@ describe("tidyMoves", () => {
     const want = new Map<string, { x: number; y: number }>();
     for (const r of [b[0]!, tall[0]!, a[0]!]) {
       want.set(r.id, { x, y });
-      // App-sized cards keep room for a second title line (like the inbox grid); resized ones use their height.
-      y += (r.id === tall[0]!.id ? CARD_H + 40 : CARD_H) + GAP;
+      // Always GAP below the actual bottom of the card above: one-line, two-line or resized.
+      y += r.height + GAP;
     }
     expect(moves).toEqual(want);
   });
 
+  it("the gap stays GAP after a two-line card too", () => {
+    const two = with_(card("two", todo.x + 5, todo.y + 200), { height: CARD_H });
+    const one = card("one", todo.x + 5, todo.y + 800);
+    const moves = tidyMoves([...lanes, ...two, ...one], todo);
+    expect(moves.get(one[0]!.id)!.y - (moves.get(two[0]!.id)!.y + CARD_H)).toBe(GAP);
+  });
+
   it("leaves out cards already in place; nothing to do → empty", () => {
     const a = card("a", todo.x + GAP, todo.y + AREA_HEADER);
-    const b = card("b", todo.x + GAP, todo.y + AREA_HEADER + CARD_H + GAP);
+    const b = card("b", todo.x + GAP, todo.y + AREA_HEADER + a[0]!.height + GAP);
     expect(tidyMoves([...lanes, ...a, ...b], todo).size).toBe(0);
+  });
+});
+
+describe("tidyMoves on the inbox / tidyAllMoves", () => {
+  const [box, boxLabel] = makeInbox(gen, NOW, { x: 0, y: 100 });
+  const ib = box!;
+  const cols = [ib.x + GAP, ib.x + GAP + CARD_W + GAP];
+  const top = ib.y + AREA_HEADER;
+
+  it("compacts the inbox in reading order: two columns, each stacked GAP apart by actual heights", () => {
+    const a = card("a", ib.x + 300, ib.y + 900); // last
+    const b = with_(card("b", ib.x + 40, ib.y + 300), { height: CARD_H }); // first (two lines)
+    const c = card("c", ib.x + 330, ib.y + 310); // second
+    const d = card("d", ib.x + 10, ib.y + 600); // third
+    const moves = tidyMoves([ib, boxLabel!, ...a, ...b, ...c, ...d], ib);
+    const one = c[0]!.height;
+    expect(moves.get(b[0]!.id)).toEqual({ x: cols[0], y: top });
+    expect(moves.get(c[0]!.id)).toEqual({ x: cols[1], y: top });
+    // Column 1 (one-line card) ends higher than column 0 (two lines): d goes there.
+    expect(moves.get(d[0]!.id)).toEqual({ x: cols[1], y: top + one + GAP });
+    expect(moves.get(a[0]!.id)).toEqual({ x: cols[0], y: top + CARD_H + GAP });
+  });
+
+  it("the inbox's fixed cards stay put as obstacles", () => {
+    const f = with_(card("f", cols[0]!, top + 10), { locked: true });
+    const a = card("a", ib.x + 20, ib.y + 900);
+    const moves = tidyMoves([ib, ...f, ...a], ib);
+    expect(moves.has(f[0]!.id)).toBe(false);
+    expect(moves.get(a[0]!.id)).toEqual({ x: cols[1], y: top });
+  });
+
+  it("tidyAllMoves: every lane and the inbox in one map, fixed cards left out", () => {
+    const inInbox = card("i", ib.x + 30, ib.y + 500);
+    const inTodo = card("t", todo.x + 5, todo.y + 600);
+    const inDoing = card("d", doing.x + 5, doing.y + 900);
+    const fixed = with_(card("f", doing.x + 5, doing.y + 300), { locked: true });
+    const els = [ib, ...lanes, ...inInbox, ...inTodo, ...inDoing, ...fixed];
+    const moves = tidyAllMoves(els);
+    expect(moves).toEqual(
+      new Map([
+        [inInbox[0]!.id, { x: cols[0], y: top }],
+        [inTodo[0]!.id, { x: todo.x + GAP, y: todo.y + AREA_HEADER }],
+        [inDoing[0]!.id, { x: doing.x + GAP, y: doing.y + AREA_HEADER }],
+      ]),
+    );
+    expect(tidyAllMoves(moveCards(els, moves, testGen(), NOW)).size).toBe(0);
   });
 });
 
@@ -172,6 +234,11 @@ describe("laneTargetAt (right-click → Tidy cards)", () => {
     const els = [backdrop, ...lanes, label, note, arrow];
     expect(laneTargetAt(els, todo.x + 30, todo.y + 1200)?.id).toBe(todo.id);
     expect(laneTargetAt(els, todo.x + 120, todo.y + 20)?.id).toBe(todo.id);
+  });
+
+  it("the inbox is a target too (Tidy cards compacts it)", () => {
+    const [ib] = makeInbox(testGen(), NOW, { x: 0, y: 100 });
+    expect(laneTargetAt([ib!, ...lanes], 50, 500)?.id).toBe(ib!.id);
   });
 
   it("nothing over a user's note or arrow inside the lane (elements drawn below the lane do not count)", () => {

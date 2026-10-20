@@ -497,7 +497,8 @@ test.describe("lining cards up in a lane", () => {
       await page.screenshot({ path: "test-results/board-lane-drop.png" });
     });
     await expect(page.locator(".excaliagent-lane-drop")).toHaveCount(0);
-    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + Math.max(busy.height, 181) + 20 });
+    // GAP (20) below the actual bottom of the lowest card, one title line or two.
+    await expect.poll(() => card(ID.needsUser)).toMatchObject({ x: lane.x + 20, y: busy.y + busy.height + 20 });
     // The card's texts came along.
     const parts = board.savedElements().filter((e) => e.customData?.excaliagent?.cardId === card(ID.needsUser)!.id);
     expect(parts.find((e) => e.customData.excaliagent.kind === "card-title")).toMatchObject({ x: lane.x + 20 + 14 });
@@ -577,8 +578,8 @@ test.describe("lining cards up in a lane", () => {
     const top = lane.y + 56;
     await expect.poll(() => card(ID.idleWarm)).toMatchObject({ x: lane.x + 20, y: top });
     const warm = card(ID.idleWarm)!;
-    // An app-sized card keeps room for a second title line (CARD_H = 181), like the inbox grid.
-    expect(card(ID.busy)).toMatchObject({ x: lane.x + 20, y: top + Math.max(warm.height, 181) + 20 });
+    // Always GAP (20) below the actual bottom of the card above.
+    expect(card(ID.busy)).toMatchObject({ x: lane.x + 20, y: top + warm.height + 20 });
 
     await page.locator(".excalidraw").focus();
     await page.keyboard.press("Control+z");
@@ -597,6 +598,41 @@ test.describe("lining cards up in a lane", () => {
     await expect(page.locator(".excalidraw .context-menu")).toBeVisible();
     await page.waitForTimeout(300);
     await expect(ours).toHaveCount(0);
+  });
+
+  test("Tidy all stacks every lane and compacts the inbox in one undo step; also in the main menu", async ({ page }) => {
+    await frame(page);
+    const inbox = board.savedElements().find((e) => e.customData?.excaliagent?.kind === "inbox")!;
+    const [lane, doing] = [lanes()[0]!, lanes()[1]!];
+    const messy = {
+      [ID.busy]: { x: lane.x + 5, y: lane.y + 700 },
+      [ID.idleWarm]: { x: doing.x + 30, y: doing.y + 400 },
+      [ID.waiting]: { x: inbox.x + 15, y: inbox.y + 900 },
+    };
+    for (const [id, at] of Object.entries(messy)) await moveCard(page, id, at.x, at.y);
+    await expect.poll(() => card(ID.waiting)?.y).toBe(inbox.y + 900);
+
+    await page.getByRole("button", { name: "Tidy all" }).click();
+    await expect.poll(() => card(ID.busy)).toMatchObject({ x: lane.x + 20, y: lane.y + 56 });
+    expect(card(ID.idleWarm)).toMatchObject({ x: doing.x + 20, y: doing.y + 56 });
+    // The inbox: its own columns, each card at the top or exactly 20 below the card above.
+    const inInbox = [ID.needsUser, ID.idleCold, ID.waiting].map((id) => card(id)!);
+    for (const c of inInbox) {
+      expect([inbox.x + 20, inbox.x + 340]).toContain(c.x);
+      const above = inInbox.filter((o) => o.x === c.x && o.y < c.y);
+      const want = above.length ? Math.max(...above.map((o) => o.y + o.height)) + 20 : inbox.y + 56;
+      expect(c.y).toBe(want);
+    }
+    expect(card(ID.waiting)!.y).toBeLessThan(inbox.y + 900);
+
+    // One undo step puts every card back.
+    await page.locator(".excalidraw").focus();
+    await page.keyboard.press("Control+z");
+    for (const [id, at] of Object.entries(messy)) await expect.poll(() => card(id)).toMatchObject(at);
+
+    await page.getByTestId("main-menu-trigger").click();
+    await page.locator(".dropdown-menu").getByText("Tidy all", { exact: true }).click();
+    await expect.poll(() => card(ID.busy)).toMatchObject({ x: lane.x + 20, y: lane.y + 56 });
   });
 
   test("with the setting off, a drop on a lane title does nothing special; it is remembered", async ({ page }) => {

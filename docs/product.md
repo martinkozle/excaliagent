@@ -87,7 +87,8 @@ OpenCode) are a later adapter.
 ### S5. Keep my layout (done)
 
 - The scene is saved locally and restored on restart; saves are atomic.
-- The inbox is a rectangle I can move and resize; new cards land inside it.
+- The inbox is a rectangle I can move and resize; new cards land inside it,
+  in columns, evenly spaced below the card above.
 - Images I paste onto the board are kept too.
 - A new board comes with Kanban lanes beside the inbox; **+ Lane** adds more.
 
@@ -107,10 +108,16 @@ Free placement stays the default: nothing snaps on its own.
   grown; the card goes below it. Dropping anywhere else leaves the card exactly
   where I let go.
 - Right-click a lane → **Tidy cards** stacks the lane's cards in one column
-  under its title, in their current top-to-bottom order.
+  under its title, in their current top-to-bottom order. On the inbox it
+  packs the cards into the inbox's columns, in reading order.
+- **Tidy all** (top right, beside **+ Lane**, and in the main menu) tidies
+  every lane and the inbox at once.
+- Stacked cards are always the same distance apart, whether a card has one
+  title line or two. If a title later grows a line, that card may overlap
+  the one below a little; tidying again fixes it (nothing moves on its own).
 - Cards that are locked, rotated, attached to an arrow, or grouped with
   something else are never moved; the column flows around them.
-- Undo: a tidy is one step; a drop is two (first the snap, back to where I let
+- Undo: a tidy (also Tidy all) is one step; a drop is two (first the snap, back to where I let
   go; then the drag itself). Lanes themselves are never moved or resized.
 - Right-clicking a note or arrow of mine inside a lane does not offer Tidy.
 - A main-menu toggle turns the drop zone off; the choice is remembered in this
