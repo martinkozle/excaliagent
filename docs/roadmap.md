@@ -8,9 +8,9 @@ details. When something gets built, close its issue and describe it in
 ## Platforms
 
 - Linux: supported and used daily (Hyprland + kitty + herdr).
-- macOS: supported. The board runs on the maintainer's MacBook (main before
-  0.3.0, 2026-10-20); herdr focus and the terminal raise are still to be
-  confirmed there. Tested by hand only; CI runs on Linux only —
+- macOS: supported, verified by the maintainer on a MacBook with kitty
+  (2026-10-20, main before 0.3.0): the board, herdr focus and the terminal
+  raise work. Switching kitty tabs is not done yet (#14). Tested by hand only; CI runs on Linux only —
   [#2](https://github.com/martinkozle/excaliagent/issues/2).
 - Windows: not supported; contributions welcome —
   [#1](https://github.com/martinkozle/excaliagent/issues/1).
@@ -22,6 +22,7 @@ details. When something gets built, close its issue and describe it in
 | [#3 Codex adapter](https://github.com/martinkozle/excaliagent/issues/3) | new `Source` |
 | [#4 OpenCode adapter](https://github.com/martinkozle/excaliagent/issues/4) | new `Source` |
 | [#5 Raise on X11, GNOME, KDE](https://github.com/martinkozle/excaliagent/issues/5) | desktop |
+| [#14 Switch to the terminal tab that holds herdr](https://github.com/martinkozle/excaliagent/issues/14) | desktop |
 | [#6 Remote machines via herdr --machine](https://github.com/martinkozle/excaliagent/issues/6) | sources, herdr |
 | [#7 Arrows between related sessions](https://github.com/martinkozle/excaliagent/issues/7) | board |
 | [#8 Fit card height to the title](https://github.com/martinkozle/excaliagent/issues/8) | board, good first issue |
