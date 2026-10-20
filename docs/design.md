@@ -371,7 +371,8 @@ a real OpenCode data dir.
   is built.
 - `session` (V, columns used): `id`, `parent_id` (sub-agent sessions; hidden),
   `directory` (absolute cwd of the process that created it), `title`,
-  `time_updated` (epoch ms), `time_archived` (archived; hidden). Ids are `ses_`
+  `time_updated`, `time_created` (both INTEGER epoch ms, V on 1.19.3), `time_archived` (archived; hidden).
+  `lastActivityAt` = `time_updated`, else `time_created`, else 0 (no age shown). Ids are `ses_`
   + 12 hex (a *descending* time code) + 14 base62 (S: `opencode/src/id/id.ts`; V).
 - Titles start as `New session - <ISO>` (`Child session - …` for sub-agents)
   until OpenCode generates one (V); such a default title is not shown (the card

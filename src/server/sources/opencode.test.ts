@@ -6,7 +6,7 @@ import { createMockOpenCode, type MockOpenCode } from "../../../test/mock-openco
 import { createMockProc } from "../../../test/mock-proc.ts";
 import type { OpenCodeProcess } from "./opencode-live.ts";
 import {
-  createOpenCodeSource, defaultOpenCodeDataDir, defaultOpenCodeDbPath, isDefaultTitle, openCodeStatus,
+  createOpenCodeSource, defaultOpenCodeDataDir, defaultOpenCodeDbPath, isDefaultTitle, openCodeSession, openCodeStatus,
   type OpenCodeSourceOptions,
 } from "./opencode.ts";
 
@@ -147,6 +147,14 @@ describe("helpers", () => {
     expect(openCodeStatus({ role: "assistant", completed: 12, created: 10 }, 5)).toBe("idle");
     // A reply left unfinished by a crash before this TUI started.
     expect(openCodeStatus({ role: "assistant", completed: null, created: 1 }, 5)).toBe("idle");
+  });
+
+  it("activity time: time_updated (epoch ms), else time_created, else 0 (never a non-number)", () => {
+    const row = { id: "ses_x", directory: "/home/alice/src/demo-app", title: "t", parent_id: null, time_archived: null };
+    expect(openCodeSession({ ...row, time_updated: 1_792_498_206_499, time_created: 1_792_498_203_192 }, {}).lastActivityAt).toBe(1_792_498_206_499);
+    expect(openCodeSession({ ...row, time_updated: 0, time_created: 1_792_498_203_192 }, {}).lastActivityAt).toBe(1_792_498_203_192);
+    const bad = { ...row, time_updated: null, time_created: "x" } as unknown as Parameters<typeof openCodeSession>[0];
+    expect(openCodeSession(bad, {}).lastActivityAt).toBe(0);
   });
 
   it("default titles", () => {

@@ -22,7 +22,9 @@ export interface SessionRow {
   id: string;
   directory: string;
   title: string;
+  /** Epoch ms (V on 1.19.3). */
   time_updated: number;
+  time_created: number;
   parent_id: string | null;
   time_archived: number | null;
 }
@@ -82,7 +84,7 @@ export function isDefaultTitle(title: string): boolean {
   return /^(New session|Child session) - \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(title);
 }
 
-const COLS = "id, directory, title, time_updated, parent_id, time_archived";
+const COLS = "id, directory, title, time_updated, time_created, parent_id, time_archived";
 const ROOT = "parent_id IS NULL AND time_archived IS NULL";
 
 /** node:sqlite, read-only. */
@@ -127,6 +129,8 @@ export function openCodeStatus(last: LastMessage | undefined, since: number): "b
   return last.role === "assistant" && last.completed == null ? "busy" : "idle";
 }
 
+const epochMs = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+
 export function openCodeSession(row: SessionRow, opts: { live?: LiveSession; status?: "busy" | "idle"; git?: GitInfo }): Session {
   const s: Session = {
     id: row.id,
@@ -134,7 +138,8 @@ export function openCodeSession(row: SessionRow, opts: { live?: LiveSession; sta
     cwd: row.directory,
     repo: basename(row.directory),
     status: opts.live ? (opts.status ?? "idle") : "dormant",
-    lastActivityAt: row.time_updated,
+    // A missing or odd value never becomes a number the board would date from 1970 (it shows no age for 0).
+    lastActivityAt: epochMs(row.time_updated) || epochMs(row.time_created),
     cacheTtlMs: 0,
     cacheExpiresAt: 0,
     live: !!opts.live,
