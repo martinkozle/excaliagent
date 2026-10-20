@@ -112,7 +112,10 @@ describe("hub", () => {
   describe("resume", () => {
     const ID = "0b6f3c1e-1111-4a2b-9c3d-123456789abc";
     const dormant = (over: Partial<Session> = {}) =>
-      session({ id: ID, live: false, status: "dormant", pid: undefined, cwd: "/r/app/pkg", repo: "app", ...over });
+      session({
+        id: ID, live: false, status: "dormant", pid: undefined, cwd: "/r/app/pkg", repo: "app",
+        resumeCommand: `claude --resume ${ID}`, ...over,
+      });
 
     async function hubWith(d: Session, panes = fakePanes()) {
       const hub = createHub({ source: fakeSource([session()], [d]).source, panes });
@@ -120,7 +123,7 @@ describe("hub", () => {
       return { hub, panes };
     }
 
-    it("resumes a dormant session with a server-built command, its cwd/repoRoot and a short label", async () => {
+    it("resumes a dormant session with its source's command, its cwd/repoRoot and a short label", async () => {
       const title = "Make the login form remember the last used email address please";
       const { hub, panes } = await hubWith(dormant({ repoRoot: "/r/app", title }));
       expect(await hub.resume(ID)).toBe("resumed");
@@ -155,6 +158,20 @@ describe("hub", () => {
       const { hub, panes } = await hubWith(dormant());
       expect(await hub.resume("99999999-2222-3333-4444-555555555555")).toBe("unknown");
       for (const bad of ["../../etc", `${ID}; rm -rf ~`, ID.slice(1), ""]) expect(await hub.resume(bad)).toBe("unknown");
+      expect(panes.resume).not.toHaveBeenCalled();
+      hub.stop();
+    });
+
+    it("types whatever command the source built (other harnesses)", async () => {
+      const { hub, panes } = await hubWith(dormant({ source: "codex", resumeCommand: `codex resume ${ID}` }));
+      expect(await hub.resume(ID)).toBe("resumed");
+      expect(panes.resume.mock.calls[0]![0].command).toBe(`codex resume ${ID}`);
+      hub.stop();
+    });
+
+    it("is unknown when the source gave no resume command", async () => {
+      const { hub, panes } = await hubWith(dormant({ resumeCommand: undefined }));
+      expect(await hub.resume(ID)).toBe("unknown");
       expect(panes.resume).not.toHaveBeenCalled();
       hub.stop();
     });

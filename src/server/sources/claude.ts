@@ -40,6 +40,11 @@ function defaultIsClaudeProcess(): (pid: number) => Promise<boolean> {
   return async (pid) => looksLikeClaude(await table.argv(pid), await table.exe(pid));
 }
 
+/** Claude session ids are UUIDs; anything else is never put into a command. */
+export const CLAUDE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const claudeResumeCommand = (id: string): string => `claude --resume ${id}`;
+
 const LIVE_STATUSES: ReadonlySet<string> = new Set<SessionStatus>([
   "busy", "idle", "waiting", "needs_user", "needs_trust", "blocked",
 ]);
@@ -65,6 +70,8 @@ export function liveSession(e: RegistryEntry, t: TranscriptInfo | undefined, git
     live: true,
     pid: e.pid,
     prLinks: t?.prLinks ?? [],
+    resumeCommand: claudeResumeCommand(e.sessionId),
+    canEnd: true,
   };
   return withGit(withTranscriptExtras(s, t, e.name, e.waitingFor), git);
 }
@@ -87,6 +94,7 @@ export function dormantSession(
     cacheExpiresAt: t.cacheExpiresAt,
     live: false,
     prLinks: t.prLinks,
+    resumeCommand: claudeResumeCommand(f.id),
   };
   // A parked session keeps the branch it was on; only the useless "HEAD" stamp
   // is replaced by the repo's current branch.
@@ -245,6 +253,7 @@ export function createClaudeSource(opts: ClaudeSourceOptions = {}): Source {
   }
 
   async function get(id: string): Promise<Session | undefined> {
+    if (!CLAUDE_ID.test(id)) return undefined;
     const live = (await list()).find((s) => s.id === id);
     if (live) return live;
     const path = await findTranscript(id);
@@ -334,6 +343,7 @@ export function createClaudeSource(opts: ClaudeSourceOptions = {}): Source {
 
   /** SIGTERM, as when its terminal closes: Claude Code exits and keeps the transcript. */
   async function end(id: string): Promise<"ended" | "not-live"> {
+    if (!CLAUDE_ID.test(id)) return "not-live";
     const e = (await liveEntries()).find((x) => x.sessionId === id);
     if (!e || !(await isClaudeProcess(e.pid).catch(() => false))) return "not-live";
     try {

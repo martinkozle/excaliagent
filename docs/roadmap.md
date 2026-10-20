@@ -19,7 +19,6 @@ details. When something gets built, close its issue and describe it in
 
 | Issue | Area |
 |---|---|
-| [#3 Codex adapter](https://github.com/martinkozle/excaliagent/issues/3) | new `Source` |
 | [#4 OpenCode adapter](https://github.com/martinkozle/excaliagent/issues/4) | new `Source` |
 | [#5 Raise on X11, GNOME, KDE](https://github.com/martinkozle/excaliagent/issues/5) | desktop |
 | [#14 Switch to the terminal tab that holds herdr](https://github.com/martinkozle/excaliagent/issues/14) | desktop |
@@ -47,6 +46,13 @@ One-time setup:
   input to a running session; changing that needs its own security design.
 
 ## Open questions
+
+- **Codex liveness**: Codex 0.163 has no session registry; running threads
+  come from held lock files plus matching TUI processes (design.md, "Codex
+  data"). Same-directory TUIs can be mismatched while a closed one's thread
+  lingers in the daemon, and macOS has no live Codex sessions yet (needs an
+  `lsof`-based lock check). Codex could also be asked over its app-server
+  socket (`thread/loaded/list`), at the cost of speaking its protocol.
 
 - **Inbox overflow** with more than a lane's worth of live cards: cards stack
   below the inbox today. Fine at 2–3 active sessions.

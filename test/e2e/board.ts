@@ -1,9 +1,11 @@
-// Test harness: a seeded mock Claude home + a real excaliagent server process.
+// Test harness: seeded mock Claude and Codex homes + a real excaliagent server process.
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMockClaude, type MockClaude } from "../mock-claude.ts";
+import { createMockCodex, type MockCodex } from "../mock-codex.ts";
+import { createMockProc, type MockProc } from "../mock-proc.ts";
 
 const root = join(import.meta.dirname, "..", "..");
 
@@ -11,6 +13,10 @@ export interface Board {
   url: string;
   origin: string;
   mock: MockClaude;
+  /** Always a throwaway Codex home (empty unless `codexSeed`): never ~/.codex. */
+  codex: MockCodex;
+  /** The synthetic /proc the server reads instead of the real one. */
+  procs: MockProc;
   stateDir: string;
   restart(): Promise<void>;
   /** Cards from the saved scene.json: what the frontend persisted. */
@@ -42,15 +48,21 @@ export interface BoardOptions {
   herdrSocket?: string;
   /** Pre-existing scene.json contents (an existing board). */
   scene?: { elements: unknown[]; appState?: Record<string, unknown> };
+  /** Seed the mock Codex home. */
+  codexSeed?: (codex: MockCodex) => void;
 }
 
 async function startServer(
   claudeDir: string,
+  codexDir: string,
+  procRoot: string,
   stateDir: string,
   opts: BoardOptions,
 ): Promise<{ proc: ChildProcess; url: string }> {
   const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("HERDR_")) env[k] = v;
+  for (const [k, v] of Object.entries(process.env)) if (!/^(HERDR|OPENCODE|CODEX)_/.test(k)) env[k] = v;
+  // Process scans read a synthetic tree, never the developer's real processes.
+  env.EXCALIAGENT_PROC_ROOT = procRoot;
   if (opts.herdrSocket) env.HERDR_SOCKET_PATH = opts.herdrSocket;
   const proc = spawn(
     process.execPath,
@@ -63,6 +75,8 @@ async function startServer(
       ...(opts.herdrSocket ? [] : ["--no-herdr"]),
       "--claude-dir",
       claudeDir,
+      "--codex-dir",
+      codexDir,
       "--state-dir",
       stateDir,
     ],
@@ -73,7 +87,13 @@ async function startServer(
     proc.stdout!.on("data", (chunk) => {
       out += chunk;
       const m = out.match(/open: (\S+)/);
-      if (m) resolve(m[1]!);
+      if (!m) return;
+      // Guard: the server must have taken the synthetic proc root.
+      if (!out.includes(`processes: ${procRoot} (EXCALIAGENT_PROC_ROOT)`)) {
+        proc.kill("SIGTERM");
+        reject(new Error(`server did not take the synthetic proc root:\n${out}`));
+      }
+      resolve(m[1]!);
     });
     proc.on("exit", (code) => reject(new Error(`server exited early (${code}):\n${out}`)));
   });
@@ -83,19 +103,24 @@ async function startServer(
 export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOptions = {}): Promise<Board> {
   const mock = createMockClaude();
   seed(mock);
+  const procs = createMockProc(mkdtempSync(join(tmpdir(), "excaliagent-e2e-proc-")));
+  const codex = createMockCodex(procs);
+  opts.codexSeed?.(codex);
   const stateDir = mkdtempSync(join(tmpdir(), "excaliagent-e2e-state-"));
   if (opts.scene) writeFileSync(join(stateDir, "scene.json"), JSON.stringify({ appState: {}, ...opts.scene }));
-  let { proc, url } = await startServer(mock.dir, stateDir, opts);
+  let { proc, url } = await startServer(mock.dir, codex.dir, procs.root, stateDir, opts);
 
   const board: Board = {
     url,
     origin: new URL(url).origin,
     mock,
+    codex,
+    procs,
     stateDir,
     async restart() {
       proc.kill("SIGTERM");
       await new Promise((r) => proc.once("exit", r));
-      ({ proc, url } = await startServer(mock.dir, stateDir, opts));
+      ({ proc, url } = await startServer(mock.dir, codex.dir, procs.root, stateDir, opts));
       board.url = url;
       board.origin = new URL(url).origin;
     },
@@ -143,6 +168,8 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
     stop() {
       proc.kill("SIGTERM");
       mock.teardown();
+      codex.teardown();
+      rmSync(procs.root, { recursive: true, force: true });
       rmSync(stateDir, { recursive: true, force: true });
     },
   };

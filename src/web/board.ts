@@ -45,12 +45,12 @@ export function cardAt(elements: readonly ExcalidrawElement[], x: number, y: num
 
 const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
-export function resumeCommand(s: Pick<Session, "id" | "cwd">): string {
-  return `cd ${shellQuote(s.cwd)} && claude --resume ${s.id}`;
-}
-
-export function resumeCommandPlain(sessionId: string): string {
-  return `claude --resume ${sessionId}`;
+/**
+ * The server-built resume command (`claude --resume <id>`, `codex resume <id>`)
+ * prefixed with a cd into the session's cwd; undefined when the server gave none.
+ */
+export function resumeCommand(s: Pick<Session, "cwd" | "resumeCommand">): string | undefined {
+  return s.resumeCommand && `cd ${shellQuote(s.cwd)} && ${s.resumeCommand}`;
 }
 
 export type MenuItem =
@@ -89,20 +89,26 @@ export function writeLaneDrop(on: boolean, store: SettingsStore | undefined): vo
   }
 }
 
-/** Our card section of the right-click menu. `s` undefined = session not known (yet). */
-export function menuItems(sessionId: string, s: Session | undefined): MenuItem[] {
+/**
+ * Our card section of the right-click menu. `s` undefined = session not known
+ * (yet): only "Change character…" (the character belongs to the card), no
+ * resume or copy items, as only the server knows how its harness resumes.
+ */
+export function menuItems(s: Session | undefined): MenuItem[] {
   const items: MenuItem[] = [];
-  if (s && !isDormant(s) && s.pane) items.push({ action: "focus", label: "Focus pane" });
-  if (s && isDormant(s)) items.push({ action: "resume", label: "Resume in herdr" });
-  items.push({ action: "copy", label: "Copy resume command", text: resumeCommandPlain(sessionId) });
-  if (s) items.push({ action: "copy", label: "Copy resume command with cd", text: resumeCommand({ id: sessionId, cwd: s.cwd }) });
-  const url = s && prLink(s);
+  if (!s) return [{ action: "character", label: "Change character…" }];
+  if (!isDormant(s) && s.pane) items.push({ action: "focus", label: "Focus pane" });
+  if (isDormant(s) && s.resumeCommand) items.push({ action: "resume", label: "Resume in herdr" });
+  const withCd = resumeCommand(s);
+  if (s.resumeCommand) items.push({ action: "copy", label: "Copy resume command", text: s.resumeCommand });
+  if (withCd) items.push({ action: "copy", label: "Copy resume command with cd", text: withCd });
+  const url = prLink(s);
   if (url) {
     const short = shortPr(url);
     items.push({ action: "open", label: /^(PR|MR) /.test(short) ? `Open ${short}` : "Open PR", url });
   }
   items.push({ action: "character", label: "Change character…" });
-  if (s && !isDormant(s)) items.push({ action: "end", label: "Stop session…" });
+  if (!isDormant(s) && s.canEnd) items.push({ action: "end", label: "Stop session…" });
   return items;
 }
 

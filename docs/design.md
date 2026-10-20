@@ -1,14 +1,14 @@
 # excaliagent: design
 
 How the board works and why. `product.md` is the goal state; this file is the
-reference for changing the code. Facts about Claude Code and herdr are
+reference for changing the code. Facts about Claude Code, Codex and herdr are
 undocumented upstream: each says which version it was verified on. Re-verify
 before relying on one after an upgrade, and update this file.
 
 ## Shape
 
 ```
-Claude Code files ──► Source (src/server/sources) ──┐
+Claude Code, Codex ► Source (src/server/sources) ──┐
                                                     ├─► Hub ──SSE──► browser: reconcile ──► Excalidraw scene
 herdr socket ───────► PaneLink (src/server/panes) ──┘     ▲                                     │
                                                           └──── PUT /api/scene (scene.json) ◄───┘
@@ -31,12 +31,14 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 | Topic | Decision | Why |
 |---|---|---|
 | Card unit | One card per **agent session** (never per pane or workspace) | Two agents in one worktree are two things to triage |
-| Source of truth | **Claude Code's own files**: `~/.claude/sessions/<pid>.json` + transcripts. herdr is optional | The board is mostly for dormant sessions, which have no pane |
-| Identity | Claude `sessionId`; the card survives exit and `--resume` | Free with the registry |
+| Source of truth | **Each harness's own files**: `~/.claude/sessions/<pid>.json` + transcripts; Codex rollouts + held thread locks. herdr is optional | The board is mostly for dormant sessions, which have no pane |
+| Identity | The harness's session id (Claude `sessionId`, Codex thread id), not qualified by harness; the card survives exit and resume | Claude ids are random UUIDs (v4), Codex ids time-ordered UUIDs (v7): they cannot collide, and existing boards keep their cards. The card rect records `source` |
+| Several harnesses | One `Source` per harness behind `combineSources` (`src/server/sources/multi.ts`); each rejects ids not in its format; a failing one degrades to no sessions | Harness code stays in its adapter |
+| Resume command | Built by the adapter from the validated id and sent as `Session.resumeCommand`; the web only prefixes `cd` | `src/web` knows harnesses by display name and logo only |
 | Spawning | Live sessions auto-spawn into the inbox; dormant ones come from the picker | 40 transcripts in one project would flood the board |
 | Single writer | Frontend writes the scene; the server never edits elements | Excalidraw and a second writer would fight over drags |
 | Pane link | Registry `pid` == a pane's foreground process pid | Zero installs: no hooks, no herdr integration |
-| Send input | **Never into a session.** Focus, and `claude --resume <id>` in a *new* pane | Small security surface |
+| Send input | **Never into a session.** Focus, and the resume command in a *new* pane | Small security surface |
 | Notes | Free elements the user places; the app only writes its own card elements | Simple patching, user content never touched |
 | Loudest signal | needs input (`needs_user`, `waiting`, `needs_trust`, `blocked`), then idle + warm cache | "Review me before the cache goes cold" |
 | Stack | Node/TypeScript; server has zero runtime deps; Vite + React + `@excalidraw/excalidraw` | One toolchain; `npx` stays light |
@@ -50,7 +52,7 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
 
 ```ts
 interface Session {
-  id: string; source: "claude"; cwd: string;
+  id: string; source: "claude" | "codex"; cwd: string;
   repo: string; repoRoot?: string; branch?: string;
   title?: string; name?: string;
   status: "busy"|"idle"|"waiting"|"needs_user"|"needs_trust"|"blocked"|"exited"|"dormant";
@@ -59,6 +61,8 @@ interface Session {
   live: boolean; pid?: number;
   pane?: { paneId; workspaceId; workspaceLabel?; tabLabel? };
   prLinks: string[]; continuedIn?: string;
+  resumeCommand?: string;   // built server-side, e.g. "codex resume <id>"
+  canEnd?: boolean;         // the process is known exactly: Stop may be offered
 }
 ```
 
@@ -138,6 +142,211 @@ Bitbucket (including self-hosted) and GitLab. Shown as `PR #N` / `MR !N`.
 Hooks exist (SessionStart, Stop, Notification, …) but none are installed: the
 registry plus file watching is enough, and "no setup" is a goal.
 
+## Codex data (verified on 0.163.0)
+
+How these were learned: the source at tag `rust-v0.163.0`
+(github.com/openai/codex, `codex-rs/`), and throwaway runs of the installed
+`codex-cli 0.163.0` (Linux, nix build) with a temporary `HOME`/`CODEX_HOME`/
+`XDG_*`, a `config.toml` pointing a custom `model_provider` at a local mock of
+the Responses API, `codex exec` and the TUI inside an isolated tmux server.
+"(V)" = seen in those runs; "(S)" = read from source only. The board's code
+never ran against a real Codex home; one fact below ("M") comes from a
+metadata-only trace (lock files, rollout names, process list; no contents)
+the maintainer took of their own Codex home.
+
+### Home
+
+`$CODEX_HOME`, else `~/.codex` (V with `CODEX_HOME`). Besides the files below it holds SQLite databases
+(`state_5.sqlite`, `logs_2.sqlite`, `thread_history_1.sqlite`, …), which the
+board does not read: rollouts and lock files are enough, and that avoids
+`node:sqlite`.
+
+### Rollouts: `sessions/YYYY/MM/DD/rollout-<local time>-<thread id>.jsonl`
+
+- Name: `rollout-2026-10-20T14-07-46-<uuid>.jsonl`; date dirs and the stamp are
+  local time (V). A reverted thread appends `_<rollout id>` (S:
+  `rollout/src/rollout_file_name.rs`). Rollouts older than 7 days may be
+  compressed to `.jsonl.zst` by a background job (S: `rollout/src/compression.rs`);
+  they are decompressed whole and asynchronously with Node's zstd (22.15+;
+  output capped at 256 MB), else skipped with one warning.
+  Archived threads move to `archived_sessions/` and are not listed.
+- Thread ids are UUIDv7 (V: `01a15935-e3d1-71c2-…`), so their creation time is
+  in the id; the board looks for a thread's file in that day's directory first.
+- The file appears only with the first prompt: a fresh TUI's thread has no
+  rollout yet, and no `sessions/` directory exists before the first one,
+  while the daemon already holds its lock (V on 0.163.0: TUI opened in a
+  throwaway home, lock present, no rollout until a prompt was sent; S:
+  `deferred_creation` in `rollout/src/recorder.rs`). Such a live card has no
+  line to date it: `lastActivityAt` falls back to the newest line's
+  `timestamp`, else the rollout's mtime, else the thread's creation time from
+  its v7 id. (Before this fallback such a card read "idle 20746d": age since
+  the epoch.)
+- Each line `{"timestamp", "ordinal", "type", "payload"}` (V), `timestamp` an
+  ISO string in UTC with milliseconds, `2026-10-20T16:34:30.112Z` (V on
+  0.163.0; S: `JsonlWriter::write_rollout_item`, `rollout/src/recorder.rs`). Used:
+
+| `type` / `payload.type` | Fields used | Notes |
+|---|---|---|
+| `session_meta` | `id`, `cwd`, `git.branch`, `source`, `thread_source`, `parent_thread_id` | First line. `source` is `"vscode"` for the TUI (it talks to the app-server as a client; V), `"exec"` for `codex exec` (V), an object for sub-agents (S); `originator` `codex-tui` / `codex_exec` (V). `git` is `{}` outside a repo with commits (V) |
+| `event_msg` `task_started` | | A turn began → busy (V). Alias `turn_started` (S) |
+| `event_msg` `task_complete`, `turn_aborted` | | Turn over → idle (V: done, and Esc → `turn_aborted` `reason: "interrupted"`). Alias `turn_complete` (S) |
+| `event_msg` `item_completed` with `item.type: "UserMessage"` | `item.content[].text` | First one = fallback title, collapsed and cut to 120 chars (V). Legacy rollouts: `event_msg` `user_message.message` (S) |
+| any line | `timestamp` | Newest one = `lastActivityAt` (fallbacks above) |
+
+  Not persisted (S: `rollout/src/policy.rs`): approval requests, questions,
+  errors. So a Codex card cannot show "needs input": a turn waiting for
+  approval stays busy. No prompt-cache TTL and no PR links are recorded:
+  Codex cards show neither.
+- The picker hides sub-agent, review and memory threads (`thread_source` not
+  `user`, `parent_thread_id`, object `source`) and `exec`/`mcp` runs, like
+  Codex's own resume picker (S: `INTERACTIVE_SESSION_SOURCES`).
+
+### Names: `session_index.jsonl`
+
+`{"id","thread_name","updated_at"}` appended on `/rename` (V); the last line
+for an id wins. Title = name, else first prompt (this is what `codex resume`
+shows too).
+
+### Liveness: `thread-writer-locks/<thread id>.lock`
+
+- Whoever has a thread loaded creates `<id>.lock` and holds an exclusive
+  `flock` on it; unloading unlocks and deletes it (S:
+  `rollout/src/writer_lock.rs`, `thread-store/src/local/live_writer.rs`; V).
+  After a crash the file stays but the lock is gone, so only a **held** lock
+  counts. Linux: the holder pid is found in `/proc/locks` by the file's inode
+  (`FLOCK ADVISORY WRITE <pid> <maj:min:inode>`; the device numbers differ
+  from `stat` on btrfs, so only the inode is matched) and confirmed by the
+  path being open in `/proc/<pid>/fd` (V). `.coordination.lock` is ignored.
+- **The TUI does not hold it.** `codex` (TUI) starts or reuses one shared
+  app-server daemon per Codex home, `codex app-server --listen unix://
+  --analytics-default-enabled --managed-daemon` (pid in
+  `app-server-daemon/daemon.pid`), and that daemon loads the thread and holds
+  the lock (V). A second TUI connects to the same daemon (V). The TUI process
+  keeps nothing thread-specific open; its argv is `codex` or
+  `codex resume <id>` (V).
+- The daemon keeps a thread loaded for `thread_unload_delay_secs` (default
+  1800 s) after its last client left and it went idle (S:
+  `app-server/src/request_processors/thread_lifecycle.rs`,
+  `core/src/config/mod.rs`; V: still held a minute after the TUI exited). A held
+  lock alone therefore does not mean anyone is looking at the thread.
+- `codex exec` runs without the daemon and holds the lock itself (S; V: its
+  lock file was gone after it exited; the holder pid was not inspected).
+- **A fresh TUI, step by step** (V on 0.163.0, a lock dir, `/proc/locks` and
+  the processes polled every 200 ms): the TUI process starts; ~1.4 s later
+  the daemon creates and locks its new thread (lock birth after the TUI's
+  start; the thread's v7 id dates from then too); the rollout appears with the
+  first prompt. With the folder-trust prompt the thread is created after
+  "Trust and continue". A TUI closed before its first prompt leaves its
+  thread loaded in the daemon, with no rollout, like any other (and
+  `loaded-threads.json` in `app-server-daemon/` lists the loaded threads for
+  the daemon's restarts, S: `app-server-transport/src/daemon_recovery.rs`).
+- **The second thread: auto-review.** A TUI may get *two* new threads, not
+  one. M (codex-cli 0.163.0, nixpkgs build, inside herdr, the shared daemon
+  already running): the daemon created and locked thread A ~1 s after the
+  TUI started and a second thread B ~0.56 s after A; the first prompt wrote
+  a rollout for A only, B never got one, and the daemon kept both locks while
+  loaded. Every earlier TUI start in that home left the same pair, 0.4–1.1 s
+  apart. The cause (their `config.toml` sets it, and it reproduces in a
+  throwaway home): `approvals_reviewer = "auto_review"` (with an
+  `approval_policy` of `on-request` or granular). On every thread that is
+  ready, the guardian extension prewarms an approvals-reviewer thread (S:
+  `ext/guardian-v2/src/sync_reviewer/mod.rs` `on_thread_ready`,
+  `core/src/guardian/review_session_setup.rs` `prepare_review_prewarm`):
+  session source `Internal(Guardian)`, `thread_source: "guardian_review"`,
+  not ephemeral, so it holds a writer lock like any thread. V in a throwaway
+  home: without the setting, one lock; with it, two, the reviewer 50–70 ms
+  after the conversation (it was slower on the maintainer's machine, which
+  also has plugins and MCP servers), and only the conversation got a rollout,
+  even when a turn requested an escalated command. `freshTui` in
+  `test/mock-codex.ts` reproduces the pair. The reviewer is not marked
+  anywhere the board reads before it has a rollout: its lock file is empty
+  like any other, and the only differences seen were optional caches that
+  exist for the conversation alone (`shell_snapshots/<id>.*.sh`,
+  `tui-thread-reference-capabilities/<id>`, both written only under some
+  settings, S). If it ever writes a rollout, its `session_meta` says
+  `guardian_review` and the user-thread filter drops it. So the board
+  cannot exclude it by a mark; it tells it apart by order: **the
+  conversation is the first new thread after the TUI's start.**
+- **Codex's own helpers run its binary** (V on 0.163.0): every sandboxed
+  command runs `codex-linux-sandbox --sandbox-policy-cwd <repo> ...` (exe =
+  the codex binary, cwd = the repo) twice, once under the daemon and once
+  under `bwrap`; `apply_patch` and `--codex-run-as-*` helpers likewise (S:
+  `arg0/src/lib.rs`). They are not TUIs: a TUI's argv[0] is `codex` (or the
+  npm shim) and its argv[1] is not `--codex-run-as-*`.
+- **Rule** (`src/server/sources/codex-live.ts`): a thread held by a non-daemon
+  Codex process is live in that process. A thread held by the daemon is live
+  only when a TUI process claims it: first by argv (`resume <id>`), then each
+  remaining TUI (latest start time first, from `/proc/<pid>/stat` + `btime`)
+  claims one of its candidates: the unclaimed user threads whose
+  `session_meta.cwd` (realpath) equals the TUI's `/proc/<pid>/cwd`, or with
+  no rollout yet (a fresh TUI's), that it can have opened: loaded (lock file
+  birth time) after the TUI started, and, with no rollout, also created (v7
+  id) after it started (nobody can resume a thread without a rollout, so it
+  is the TUI's that made it; for the same reason `codex resume` without an
+  id, still in its picker, gets no rollout-less candidate). The computed
+  start time is never late (`btime` is whole seconds, rounded down). Of its
+  candidates, a thread with a rollout wins (the newest last line, then the
+  newest load, then the larger id); else the earliest created (v7 id; a tie
+  goes to the smaller id, never to scan order): the conversation, not the
+  reviewer loaded after it. A TUI's candidates it did not take are reserved:
+  no other (older) TUI may take them either, unless one is that TUI's own
+  earliest candidate. So an older TUI in another directory, or one in the
+  same directory, never takes a newer TUI's reviewer, and the answer is the
+  same on every poll: the conversation alone, beside its reviewer, and once
+  prompted.
+  Without those rules, a new TUI next to a closed TUI's unprompted thread in
+  the same directory claimed that thread for the ~1.4 s before its own
+  existed (a second card, which then went dormant), and claimed it again
+  whenever a sandbox helper, counted as a newer TUI, took its own thread (the
+  card flapped live and dormant); and with auto-review on, the newest-load
+  rule of the next version showed the conversation, then the reviewer (the
+  conversation's card went dormant), then the conversation again once its
+  rollout existed (M).
+  Unclaimed daemon threads are lingering → dormant. Its pid is the TUI's, so
+  herdr links the pane like Claude's. The npm shim (`node …/codex.js`, S) and
+  its native child count once, as the shim. A TUI that names a thread
+  (`resume <id>`) never falls back to the directory rule, even when that
+  thread is not loaded or taken.
+- **Exact or guessed**: an in-process holder and a `resume <id>` claim are
+  exact; a directory claim is a guess. Only exact matches set
+  `Session.canEnd` (the board offers Stop) and only they can be stopped
+  (`end` answers "unsupported" otherwise), so a guess never sends a SIGTERM.
+- **Known gap**: two TUIs in one directory: a thread the later one loaded is
+  matched to it, even if the earlier one opened it; two TUIs started within
+  ~2 s of each other may show each other's thread (still one card each, no
+  reviewer's). `/new` or `/resume` inside a TUI switches threads without
+  changing its argv; the cwd rule then keeps a thread with a rollout over a
+  new one without, and among rollouts picks the newest activity. A `/resume`
+  of a thread the daemon still had loaded (no new lock) is not matched: that
+  card stays dormant. After a daemon restart
+  every thread is reloaded, so lingering same-directory threads may be
+  matched again. Mismatches only affect which of two same-directory cards is
+  live.
+- The web layer has no "phantom card" guard (removing an auto-spawned card
+  whose session vanished within seconds): a session closed quickly is real,
+  and the board never removes a card on its own. The fix is in the match.
+- Processes are only inspected when a lock file exists, and other processes'
+  command lines and cwds only when the daemon holds one. Not Linux (no
+  `/proc/locks`): no live Codex sessions; they are offered as dormant only.
+  macOS (e.g. `lsof`) is not done.
+- `fs.watch` on the lock dir (threads load and unload) plus a 2 s poll (turns
+  start and end only in the rollouts). One look (process scan, rollouts, git)
+  is reused for a poll interval by `list`, `listDormant` and `get`, so looking
+  up many cards does not rescan; the watcher always looks afresh.
+- The proc root is an option (`EXCALIAGENT_PROC_ROOT` for the CLI, not a
+  documented flag): tests and the demo point it at a synthetic tree
+  (`test/mock-proc.ts`), so they never read the machine's processes.
+
+### Resume and stop
+
+- Resume: `codex resume <id>` in the session's cwd (V: `codex resume --help`,
+  and resuming reopened the thread through the daemon).
+- Stop (exact matches only, see above): SIGTERM to the TUI pid, after a fresh
+  check that it is still a Codex process that is not the daemon. The TUI exits (V); the daemon keeps the thread
+  loaded, which the rule above treats as lingering, so the card turns dormant.
+  A `codex exec` holder is SIGTERMed itself. The daemon is never signalled
+  (it serves every TUI).
+
 ## herdr data (verified on 0.9.0, protocol 22)
 
 - Socket: `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock`.
@@ -186,8 +395,11 @@ registry plus file watching is enough, and "no setup" is a goal.
   `foreground_cwd` is inside `repoRoot ?? cwd` (path-boundary aware, focused one
   preferred) → `tab.create` there, labelled with the session title (40 chars);
   else `workspace.create` labelled with the repo name. Then
-  `pane.send_text "claude --resume <id>\n"` and raise. The id is validated
-  (`/^[0-9a-f-]{36}$/i`) and the command built server-side only.
+  `pane.send_text "<resumeCommand>\n"` (e.g. `claude --resume <id>`) and raise.
+  The id must match `SESSION_ID` (`src/server/hub.ts`: the union of the
+  harnesses' id formats; Claude and Codex: a UUID) and the owning source's own
+  format; the command is built server-side by that source only. The
+  characters store keys by the same check.
 - **Socket**: `HERDR_SOCKET_PATH`, else `$XDG_CONFIG_HOME/herdr/herdr.sock`, else
   `~/.config/herdr/herdr.sock` (checked on herdr 0.9.0 / Linux with isolated
   servers). The herdr binary has no `~/Library` path, so macOS is assumed to be
@@ -251,11 +463,15 @@ A card is five app-owned elements in one app group (group id first in
   `{kind:"card-title", sessionId, cardId}`.
 - **details** — Nunito (6) 14 px, `#495057`: `repo · branch` / `status: waitingFor ·
   age` / `cache warm 41m` | `cache cold` / `herdr: ws › tab` | `not in herdr` /
-  `PR #12`. Empty lines dropped. Full width (`TEXT_W` 272 px) at the rect's left
+  `PR #12`. Empty lines dropped. The age is left out (`idle`, not
+  `idle · 20746d`) when `lastActivityAt` is missing (0) or implausible (before
+  2020 or more than a day ahead), whatever the harness (`sessionAge`); the
+  picker does the same. Full width (`TEXT_W` 272 px) at the rect's left
   padding, under the title. `{kind:"card-details", sessionId, cardId}`.
 - **logo** — an image element, 20 px, in the rect's top-right corner, centred
   on the first title line: the harness mark (`src/web/logos.ts`; Claude's from
-  simple-icons, CC0). `{kind:"card-logo", sessionId, cardId}`. Its file
+  simple-icons, CC0; simple-icons has no OpenAI mark, so Codex gets a neutral
+  `>_` glyph drawn for this project, dark grey, evenodd holes). `{kind:"card-logo", sessionId, cardId}`. Its file
   (`excaliagent-logo-<source>`, an SVG data URL) is a constant handed to
   Excalidraw on load and never stored, so the mark can change between releases.
   A source without a logo gets none.
@@ -388,7 +604,8 @@ their rotated bounds), and a fixed card being dragged is never placed.
 
 - **Double-click a card** (capture phase, so Excalidraw does not enter text
   editing): live → `POST /api/focus`; dormant → `POST /api/resume`; no herdr →
-  copy `cd '<cwd>' && claude --resume <id>` and toast.
+  copy `cd '<cwd>' && <resumeCommand>` and toast. The Stop confirm names the
+  harness (`HARNESS_NAMES` in `logos.ts`); picker rows show its logo.
 - **Right-click a card** (or a lane, below): Excalidraw 0.18 hardcodes its context menu (no API),
   and injecting into its React-managed DOM breaks on re-render. So
   `src/web/CardMenu.tsx` renders its own panel, portalled into the `.excalidraw`
@@ -398,7 +615,11 @@ their rotated bounds), and a fixed card being dragged is never placed.
   `src/web/board.ts`; it uses the panel's measured height). Above/below does not
   work: on a 1080p screen Excalidraw's own menu is ~730 px tall. Tinted with
   `--color-primary-light`, header in `--color-primary`. Items: Focus pane | Resume in herdr, Copy resume
-  command, Copy resume command with cd, Open PR, Change character…, Stop session…. They act on pointerdown and let
+  command, Copy resume command with cd (both from the server's
+  `resumeCommand`), Open PR, Change character…, Stop session… (only when the
+  server set `canEnd`). A card whose session is unknown (its files are gone)
+  gets only Change character…: the character belongs to the card, while
+  resuming needs the server's command (it used to offer `claude --resume <id>`). They act on pointerdown and let
   the event bubble, so Excalidraw closes its menu and ours follows.
 - **Main menu**: Excalidraw's `<MainMenu>` with all of its default items
   re-listed (`MainMenu.DefaultItems.*`, as Excalidraw's own default menu) plus
@@ -531,7 +752,8 @@ their rotated bounds), and a fixed card being dragged is never placed.
   are about to get a card, in board order. (1) An override (from any pack)
   wins. (2) Else the remembered pick for the active pack, if that character
   still exists, taken in the order the picks were made (the key order of
-  `assigned[pack]`). (3) Everyone else: start at FNV-1a(session id) mod pack
+  `assigned[pack]`). (3) Everyone else: start at FNV-1a(session id; the
+  same for every harness: Claude, Codex) mod pack
   size and probe linearly (wrapping) to the first character no other card
   uses; if all are used, take the start slot (duplicates). New picks are
   remembered at once, so a character never shifts when the cards it collided
@@ -649,17 +871,21 @@ Body limits: `/api/packs/image` 1.5 MB, the other character and pack routes
   machine the Host/Origin checks already stop websites; the token keeps other
   local users out of your session list and herdr.
 - Host header check (DNS rebinding), same-origin and JSON-only writes (CSRF).
-- Side effects: focus a pane, raise a window, start `claude --resume <id>` in a
-  new pane, end a session (`POST /api/end`, after a confirm in the UI: SIGTERM
-  to the registry pid, only if that pid is still a `claude` process, which
-  guards against pid reuse). Ids are validated; commands and pids are derived
+- Side effects: focus a pane, raise a window, start `claude --resume <id>` or
+  `codex resume <id>` in a new pane, end a session (`POST /api/end`, after a
+  confirm in the UI: SIGTERM to the registry pid, only if that pid is still a
+  `claude` process, which guards against pid reuse; for Codex to the TUI
+  (or `codex exec`) pid of an exact match, only if it is still a `codex`
+  process and not the shared daemon). Ids are validated; commands and pids are derived
   server-side only.
-- Reads only `~/.claude/sessions`, transcript metadata lines, `.git/HEAD`, and
-  `/proc` (for the window raise). Writes only its state dir (scene, images,
-  `characters.json`, `packs/`). Pack names are validated against a strict
-  charset and matched against the folder listing before they touch a path;
-  image file names must be plain listable names (no separators, not hidden)
-  and regular files.
+- Reads only `~/.claude/sessions`, transcript metadata lines, Codex rollouts
+  (metadata, turn markers, the first prompt as title), `session_index.jsonl`
+  and `thread-writer-locks/`, `.git/HEAD`, and `/proc` (window raise;
+  `/proc/locks` and Codex processes' argv, cwd and fds). Writes only its state
+  dir (scene, images, `characters.json`, `packs/`). Pack names are validated
+  against a strict charset and matched against the folder listing before they
+  touch a path; image file names must be plain listable names (no separators,
+  not hidden) and regular files.
 
 ## Prior art
 

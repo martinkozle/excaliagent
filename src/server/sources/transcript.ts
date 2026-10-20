@@ -1,8 +1,8 @@
 // Incremental scanner for Claude Code transcripts
 // (<claudeDir>/projects/<slug>/<sessionId>.jsonl). Keeps a byte offset per file
 // and parses only appended bytes. Never keeps message content.
-import { open, stat } from "node:fs/promises";
-import { onceLogger, type Logger, type Warn } from "./log.ts";
+import { JsonlScanner, type JsonlFold } from "./jsonl.ts";
+import type { Logger, Warn } from "./log.ts";
 
 export const TTL_1H = 3600_000;
 export const TTL_5M = 300_000;
@@ -41,18 +41,6 @@ interface Acc {
   apiOtherTierMs?: number;
 }
 
-interface FileState {
-  ino: number;
-  dev: number;
-  mtimeMs: number;
-  offset: number;
-  bytesRead: number;
-  partial: Buffer;
-  acc: Acc;
-}
-
-const CHUNK = 1 << 20;
-const NL = 0x0a;
 // Cheap prefilter; the parsed top-level `type` is still checked.
 const INTERESTING = /"type":"(?:ai-title|agent-name|pr-link|continued-in|user|assistant|api-request)"/;
 
@@ -136,103 +124,15 @@ function snapshot(acc: Acc): TranscriptInfo {
   return out;
 }
 
-export class TranscriptScanner {
-  private files = new Map<string, FileState>();
-  private inflight = new Map<string, Promise<TranscriptInfo | undefined>>();
-  private warn: Warn;
+const fold: JsonlFold<Acc, TranscriptInfo> = {
+  empty: emptyAcc,
+  interesting: (line) => INTERESTING.test(line),
+  apply: applyLine,
+  snapshot,
+};
 
+export class TranscriptScanner extends JsonlScanner<Acc, TranscriptInfo> {
   constructor(opts: { log?: Logger; warn?: Warn } = {}) {
-    this.warn = opts.warn ?? onceLogger(opts.log ?? console.warn);
-  }
-
-  /** Scans new bytes of `path` and returns the folded info, or undefined if the file is gone. */
-  scan(path: string): Promise<TranscriptInfo | undefined> {
-    const running = this.inflight.get(path);
-    if (running) return running;
-    const p = this.doScan(path).finally(() => this.inflight.delete(path));
-    this.inflight.set(path, p);
-    return p;
-  }
-
-  /** Read bookkeeping, for tests. */
-  stats(path: string): { offset: number; bytesRead: number } | undefined {
-    const s = this.files.get(path);
-    return s && { offset: s.offset, bytesRead: s.bytesRead };
-  }
-
-  forget(path: string): void {
-    this.files.delete(path);
-  }
-
-  private async doScan(path: string): Promise<TranscriptInfo | undefined> {
-    let st;
-    try {
-      st = await stat(path);
-    } catch {
-      this.files.delete(path);
-      return undefined;
-    }
-    let s = this.files.get(path);
-    const replaced = !s || s.ino !== st.ino || s.dev !== st.dev;
-    const shrunk = !!s && st.size < s.offset;
-    // Same size but touched: rewritten in place (appends always grow the file).
-    const rewritten = !!s && st.size === s.offset && st.mtimeMs !== s.mtimeMs;
-    if (!s || replaced || shrunk || rewritten) {
-      s = { ino: st.ino, dev: st.dev, mtimeMs: st.mtimeMs, offset: 0, bytesRead: s?.bytesRead ?? 0, partial: Buffer.alloc(0), acc: emptyAcc() };
-      this.files.set(path, s);
-    }
-    if (st.size > s.offset) {
-      try {
-        await this.readFrom(path, s, st.size);
-      } catch (e) {
-        this.warn(`excaliagent: cannot read transcript ${path}: ${(e as Error).message}`, path);
-      }
-    }
-    s.mtimeMs = st.mtimeMs;
-    return snapshot(s.acc);
-  }
-
-  private async readFrom(path: string, s: FileState, end: number): Promise<void> {
-    const fh = await open(path, "r");
-    try {
-      const buf = Buffer.allocUnsafe(Math.min(CHUNK, end - s.offset));
-      while (s.offset < end) {
-        const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, end - s.offset), s.offset);
-        if (bytesRead === 0) break;
-        s.offset += bytesRead;
-        s.bytesRead += bytesRead;
-        this.consume(path, s, buf.subarray(0, bytesRead));
-      }
-    } finally {
-      await fh.close();
-    }
-  }
-
-  private consume(path: string, s: FileState, chunk: Buffer): void {
-    let start = 0;
-    let nl = chunk.indexOf(NL, start);
-    while (nl !== -1) {
-      const piece = chunk.subarray(start, nl);
-      const line = s.partial.length ? Buffer.concat([s.partial, piece]) : piece;
-      s.partial = Buffer.alloc(0);
-      this.parseLine(path, s.acc, line);
-      start = nl + 1;
-      nl = chunk.indexOf(NL, start);
-    }
-    if (start < chunk.length) s.partial = Buffer.concat([s.partial, chunk.subarray(start)]);
-  }
-
-  private parseLine(path: string, acc: Acc, line: Buffer): void {
-    if (line.length === 0) return;
-    const text = line.toString("utf8");
-    if (!INTERESTING.test(text)) return;
-    let o: unknown;
-    try {
-      o = JSON.parse(text);
-    } catch {
-      this.warn(`excaliagent: skipping malformed line(s) in ${path}`, path);
-      return;
-    }
-    if (o && typeof o === "object" && !Array.isArray(o)) applyLine(acc, o as Record<string, unknown>);
+    super(fold, { ...opts, noun: "transcript" });
   }
 }

@@ -15,7 +15,8 @@ export interface Hub {
   /** Focus the session's pane. False when it has none. */
   focus(sessionId: string): Promise<boolean>;
   /**
-   * Reopen a dormant session in a new terminal (`claude --resume <id>`).
+   * Reopen a dormant session in a new terminal (its source's resume command,
+   * e.g. `claude --resume <id>`).
    * "live": it is running, focus it instead. "no-herdr": nothing can open a terminal.
    */
   resume(sessionId: string): Promise<ResumeResult>;
@@ -26,8 +27,12 @@ export interface Hub {
 export type ResumeResult = "resumed" | "no-herdr" | "unknown" | "live";
 export type EndResult = "ended" | "not-live" | "unknown" | "unsupported";
 
-/** Claude session ids are UUIDs; anything else is never put into a command. */
-export const SESSION_ID = /^[0-9a-f-]{36}$/i;
+/**
+ * The id formats of every supported harness (Claude and Codex: UUIDs).
+ * Anything else is refused before it reaches a source or the characters store;
+ * each source also checks its own exact format before an id goes into a command.
+ */
+export const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LABEL_MAX = 40;
 
@@ -105,11 +110,12 @@ export function createHub({ source, panes }: { source: Source; panes: PaneLink }
       const s = await source.get(sessionId);
       if (!s) return "unknown";
       if (s.live) return "live";
+      if (!s.resumeCommand) return "unknown";
       if (!panes.resume || !panes.available()) return "no-herdr";
       await panes.resume({
         cwd: s.cwd,
         ...(s.repoRoot !== undefined ? { repoRoot: s.repoRoot } : {}),
-        command: `claude --resume ${s.id}`,
+        command: s.resumeCommand,
         label: resumeLabel(s),
       });
       return "resumed";

@@ -11,6 +11,9 @@ export type SessionStatus =
   | "exited"
   | "dormant";
 
+/** The harness that produced a session (its adapter on the server). */
+export type SessionSource = "claude" | "codex";
+
 export interface Pane {
   paneId: string;
   workspaceId: string;
@@ -21,7 +24,7 @@ export interface Pane {
 
 export interface Session {
   id: string;
-  source: "claude";
+  source: SessionSource;
   cwd: string;
   /** Basename of the cwd's repo (cwd basename for now). */
   repo: string;
@@ -46,6 +49,16 @@ export interface Session {
   prLinks: string[];
   /** Session id this one was continued in, if any (recorded, not acted on yet). */
   continuedIn?: string;
+  /**
+   * Shell command that resumes this session in its cwd, built server-side by
+   * the adapter from the validated id (e.g. `claude --resume <id>`).
+   */
+  resumeCommand?: string;
+  /**
+   * The server knows exactly which process shows this live session, so the
+   * board may offer to stop it. Unset when that is only inferred.
+   */
+  canEnd?: boolean;
 }
 
 /** Statuses that mean "a human is needed". */

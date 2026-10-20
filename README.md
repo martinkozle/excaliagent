@@ -1,6 +1,7 @@
 # excaliagent
 
-A spatial scratchboard for your Claude Code sessions, on an Excalidraw canvas.
+A spatial scratchboard for your coding-agent sessions (Claude Code and OpenAI
+Codex), on an Excalidraw canvas.
 
 ![The board: session cards triaged into lanes](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/board.png)
 
@@ -30,6 +31,22 @@ PR #12                           ← last PR link
 | dashed, pale | dormant (not running) |
 
 ![Right-click on a card: the excaliagent section next to the Excalidraw menu](https://raw.githubusercontent.com/martinkozle/excaliagent/main/docs/images/card-menu.png)
+
+## Supported agents
+
+| Agent | Live sessions and status | Dormant sessions | Resume | Stop |
+|---|---|---|---|---|
+| Claude Code | registry in `~/.claude/sessions`: busy, idle, needs input, ... | transcripts | `claude --resume <id>` | yes |
+| Codex (0.163) | Linux only: running threads; busy or idle (approval prompts show as busy) | rollouts in `~/.codex/sessions` | `codex resume <id>` | yes |
+
+Codex cards carry no prompt-cache line or PR link (Codex records neither), and
+on macOS Codex sessions are only offered as dormant ones. Stop is offered only
+when the board knows the Codex process for sure (`codex resume <id>`, or
+`codex exec`), not when it matched a `codex` started without an id by its
+folder. Rollouts older than a week may be compressed; reading those needs
+Node 22.15+. Codex is looked up in
+`$CODEX_HOME`, else `~/.codex` (`--codex-dir` to change, `--no-codex` to
+turn it off). Details: [design](docs/design.md#codex-data-verified-on-01630).
 
 ## Run
 
@@ -65,8 +82,8 @@ bookmark. Running it again while a board is up just opens that board.
   narrow window the top-right buttons show only their icons; hover for the name.
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,
-  Sway, macOS). A dormant session is resumed with `claude --resume` in a new herdr
-  tab, in the workspace for that repo. Without herdr, the resume command is
+  Sway, macOS). A dormant session is resumed (`claude --resume <id>`,
+  `codex resume <id>`) in a new herdr tab, in the workspace for that repo. Without herdr, the resume command is
   copied instead.
 - **Right-click a card** for an excaliagent section on top of the Excalidraw
   menu: focus or resume, copy the resume command (with or without `cd`), open
@@ -95,14 +112,20 @@ bookmark. Running it again while a board is up just opens that board.
   board with the live sessions. Or try a clean board without touching yours:
   `npx excaliagent --state-dir /tmp/excaliagent-fresh`.
 
-Options: `--port`, `--no-open`, `--state-dir`, `--claude-dir`, `--no-herdr`, `--no-raise`.
+Options: `--port`, `--no-open`, `--state-dir`, `--claude-dir`, `--codex-dir`,
+`--no-codex`, `--no-herdr`, `--no-raise`.
 See `npx excaliagent --help`.
 
 ## Privacy and security
 
 - Reads `~/.claude/sessions/*.json` and the transcript files under
   `~/.claude/projects/` (only metadata lines: title, branch, timestamps, token
-  usage, PR links; never message content). Installs no hooks, writes nothing
+  usage, PR links; never message content). For Codex it reads the rollouts
+  under `~/.codex/sessions/` (metadata, turn starts and ends, and the first
+  prompt, cut short, as the title, like `codex resume` shows it),
+  `session_index.jsonl` (names), the lock files in `thread-writer-locks/`, and
+  `/proc` (`/proc/locks`, and the command line and working directory of
+  `codex` processes) to tell which threads are running. Installs no hooks, writes nothing
   outside its state directory.
 - Listens on loopback only. A random token (created once, kept in the state
   directory, readable only by you) is put into the URL it opens and exchanged
@@ -110,7 +133,7 @@ See `npx excaliagent --help`.
   machine stay out. Requests with a
   foreign `Host` (DNS rebinding) or cross-origin writes are refused.
 - Its only actions: focus a herdr pane, raise the terminal window, start
-  `claude --resume <id>` in a new herdr pane, and stop a session when you ask
+  `claude --resume <id>` or `codex resume <id>` in a new herdr pane, and stop a session when you ask
   (right-click → Stop session, confirmed; it exits as if its terminal closed).
   It never types into a running session.
 - Images you paste onto the board, and the images of your character packs,
@@ -139,13 +162,14 @@ The repo ships a Nix flake with Node 24 and Chromium for the browser tests:
 direnv allow        # or: nix develop
 npm install
 npm test            # unit tests (vitest)
-npm run test:e2e    # browser tests (playwright) against a mock Claude home
+npm run test:e2e    # browser tests (playwright) against mock Claude and Codex homes
 npm run demo        # the board with a seeded, synthetic set of sessions
-npm run dev         # server + Vite hot reload against your real ~/.claude
+npm run dev         # server + Vite hot reload against your real ~/.claude and ~/.codex
 ```
 
-Tests never read your real `~/.claude` or talk to your running herdr:
-`test/mock-claude.ts` seeds a throwaway Claude home with dummy processes, and the
+Tests never read your real `~/.claude` or `~/.codex` or talk to your running
+herdr: `test/mock-claude.ts` and `test/mock-codex.ts` seed throwaway homes with
+dummy processes, and the
 herdr tests start an isolated `herdr server` with its own temp home and socket.
 A privacy test fails if any fixture contains this machine's home path or user
 name.
@@ -153,4 +177,4 @@ name.
 Docs: [product](docs/product.md), [design](docs/design.md), [roadmap](docs/roadmap.md). Agents start at [AGENTS.md](AGENTS.md).
 
 MIT licensed. Built-in characters are Unicode emoji, drawn by your system's
-emoji font. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to.
+emoji font. The harness logos on cards (from [simple-icons](https://simpleicons.org), CC0) are trademarks of their owners and only identify which agent a card belongs to. simple-icons has no OpenAI mark, so Codex cards show a neutral `>_` glyph drawn for this project.

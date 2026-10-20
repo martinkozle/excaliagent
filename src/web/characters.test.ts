@@ -55,6 +55,17 @@ describe("characterHash", () => {
 });
 
 describe("assignCharacters", () => {
+  it("gives every harness's sessions a character through the same hash and probe (Claude, Codex)", () => {
+    const claude = "0a1b2c3d-0000-4000-8000-000000000001";
+    const codex = "01a15935-e3d1-71c2-9d74-39d8c583eef0";
+    const r = run({ sessionIds: [claude, codex] });
+    expect(r.chars.get(claude)?.id).toBe(ABCD.characters[characterHash(claude) % 4]!.id);
+    const codexStart = characterHash(codex) % 4;
+    const expected = [0, 1, 2, 3].map((k) => ABCD.characters[(codexStart + k) % 4]!.id).find((c) => c !== r.chars.get(claude)?.id);
+    expect(r.chars.get(codex)?.id).toBe(expected);
+    expect(Object.keys(r.remember).sort()).toEqual([claude, codex].sort());
+  });
+
   it("starts at hash(session id) in the active pack and remembers the pick", () => {
     const [a] = idsAt(2, 4, 1);
     const r = run({ sessionIds: [a!] });
