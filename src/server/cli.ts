@@ -1,15 +1,15 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseCliArgs, USAGE, type CliArgs } from "./args.ts";
+import { DEFAULT_PORT, parseCliArgs, USAGE, type CliArgs } from "./args.ts";
 import { createHub } from "./hub.ts";
 import { createAppServer, type Middleware } from "./http.ts";
 import { createDesktop } from "./desktop/desktop.ts";
 import { createHerdrLink, createNoPaneLink } from "./panes/herdr.ts";
 import { createSceneStore, defaultStateDir } from "./scene-store.ts";
 import { createClaudeSource } from "./sources/claude.ts";
+import { loadOrCreateToken } from "./token.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // src/server or dist/server → package root
@@ -28,13 +28,14 @@ function openBrowser(url: string) {
 }
 
 async function main(args: CliArgs) {
-  const token = randomBytes(24).toString("base64url");
   const source = createClaudeSource({ claudeDir: args.claudeDir });
   const desktop = args.herdr && args.raise ? createDesktop({ env: process.env }) : undefined;
   const panes = args.herdr ? createHerdrLink({ desktop }) : createNoPaneLink();
   const hub = createHub({ source, panes });
   await hub.start();
-  const scenes = createSceneStore(args.stateDir ?? defaultStateDir());
+  const stateDir = args.stateDir ?? defaultStateDir();
+  const scenes = createSceneStore(stateDir);
+  const token = await loadOrCreateToken(stateDir);
 
   let middleware: Middleware | undefined;
   let closeVite = async () => {};
@@ -58,7 +59,16 @@ async function main(args: CliArgs) {
     closeVite = () => vite.close();
   }
 
-  await server.listen(args.port);
+  if (args.port !== undefined) await server.listen(args.port);
+  else {
+    try {
+      await server.listen(DEFAULT_PORT);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
+      console.log(`port ${DEFAULT_PORT} is busy (another excaliagent?); using a random port`);
+      await server.listen(0);
+    }
+  }
   const url = `http://127.0.0.1:${server.port}/?token=${token}`;
   console.log(`excaliagent ${args.dev ? "(dev) " : ""}listening on http://127.0.0.1:${server.port}`);
   console.log(`scene: ${scenes.path}`);

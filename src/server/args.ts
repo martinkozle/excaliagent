@@ -1,7 +1,11 @@
 import { parseArgs } from "node:util";
 
+/** Used when --port is not given; a busy default falls back to a random port. */
+export const DEFAULT_PORT = 7357;
+
 export interface CliArgs {
-  port: number;
+  /** undefined = DEFAULT_PORT, or a random one if that is busy; 0 = random. */
+  port: number | undefined;
   open: boolean;
   dev: boolean;
   herdr: boolean;
@@ -18,7 +22,8 @@ export const USAGE = `Usage: excaliagent [options]
 A spatial Excalidraw board for your Claude Code sessions.
 
 Options:
-  --port <n>          Port on 127.0.0.1 (default: random free port)
+  --port <n>          Port on 127.0.0.1 (default: 7357, or a random free port
+                      if that is busy; 0 = always random)
   --no-open           Do not open the browser, just print the URL
   --state-dir <dir>   Where scene.json lives (default: $XDG_STATE_HOME/excaliagent)
   --claude-dir <dir>  Claude Code home (default: ~/.claude)
@@ -47,7 +52,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
       version: { type: "boolean", short: "v", default: false },
     },
   });
-  let port = 0;
+  let port: number | undefined;
   if (values.port !== undefined) {
     port = Number(values.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid --port: ${values.port}`);

@@ -65,7 +65,7 @@ beforeEach(async () => {
   server = createAppServer({ hub, scenes: createSceneStore(dir), token: TOKEN, webRoot });
   await server.listen(0);
   base = `http://127.0.0.1:${server.port}`;
-  cookie = `excaliagent_token=${TOKEN}`;
+  cookie = `excaliagent_token_${server.port}=${TOKEN}`;
 });
 afterEach(async () => {
   await server.close();
@@ -78,9 +78,11 @@ describe("auth", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/");
     const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain(`excaliagent_token=${TOKEN}`);
+    // Named per port: browsers share cookies across ports, and two boards must not clobber each other.
+    expect(setCookie).toContain(`excaliagent_token_${server.port}=${TOKEN}`);
     expect(setCookie).toMatch(/HttpOnly/i);
     expect(setCookie).toMatch(/SameSite=Strict/i);
+    expect(setCookie).toMatch(/Max-Age=31536000/); // the token is stable, so the cookie outlives a restart
   });
 
   it("refuses a wrong token", async () => {
@@ -91,7 +93,9 @@ describe("auth", () => {
   it("refuses the page and the API without a cookie", async () => {
     expect((await fetch(`${base}/`)).status).toBe(401);
     expect((await fetch(`${base}/api/sessions`)).status).toBe(401);
-    expect((await fetch(`${base}/api/sessions`, { headers: { cookie: "excaliagent_token=bad" } })).status).toBe(401);
+    expect((await fetch(`${base}/api/sessions`, { headers: { cookie: `excaliagent_token_${server.port}=bad` } })).status).toBe(401);
+    // Another port's cookie does not count.
+    expect((await fetch(`${base}/api/sessions`, { headers: { cookie: `excaliagent_token_1=${TOKEN}` } })).status).toBe(401);
   });
 
   it("serves the page and assets with the cookie", async () => {

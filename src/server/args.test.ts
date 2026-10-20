@@ -4,7 +4,7 @@ import { parseCliArgs } from "./args.ts";
 describe("parseCliArgs", () => {
   it("has sane defaults", () => {
     expect(parseCliArgs([])).toEqual({
-      port: 0, open: true, dev: false, herdr: true, raise: true, stateDir: undefined, claudeDir: undefined, help: false, version: false,
+      port: undefined, open: true, dev: false, herdr: true, raise: true, stateDir: undefined, claudeDir: undefined, help: false, version: false,
     });
   });
   it("parses every flag", () => {
@@ -14,6 +14,9 @@ describe("parseCliArgs", () => {
   });
   it("--no-raise keeps herdr focus but does not raise the terminal window", () => {
     expect(parseCliArgs(["--no-raise"])).toMatchObject({ herdr: true, raise: false });
+  });
+  it("--port 0 asks for a random free port", () => {
+    expect(parseCliArgs(["--port", "0"]).port).toBe(0);
   });
   it("rejects a bad port", () => {
     expect(() => parseCliArgs(["--port", "abc"])).toThrow(/port/);

@@ -105,4 +105,4 @@ OpenCode) are a later adapter.
 | Stale registry files after a crash look live | Liveness requires `kill -0 pid` |
 | Excalidraw fights the app's patches (lost drags) | Frontend is the single writer; app patches use `CaptureUpdateAction.NEVER` |
 | herdr protocol changes (pre-1.0) | Adapter uses a handful of methods; tests check them against the recorded schema |
-| Any website could hit the local server | Loopback bind, startup token, Host check, same-origin writes |
+| Any website could hit the local server | Loopback bind, access token, Host check, same-origin writes |

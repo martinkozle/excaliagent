@@ -14,8 +14,8 @@ herdr socket ───────► PaneLink (src/server/panes) ──┘     
                                                           └──── PUT /api/scene (scene.json) ◄───┘
 ```
 
-- `npx excaliagent` starts one Node process on `127.0.0.1:<random>` and opens
-  the browser with a one-time token.
+- `npx excaliagent` starts one Node process on `127.0.0.1:7357` (a random port
+  if that is busy) and opens the browser with the access token.
 - The **server** reads sessions, links them to herdr panes, streams
   `Session[]` over SSE, stores the scene, and performs the only side effects
   (focus a pane, resume into a new pane, raise the terminal window).
@@ -375,7 +375,13 @@ foreign `Origin` are refused and must be `application/json`.
 
 ## Security
 
-- Bound to `127.0.0.1`. Random token in the opened URL, exchanged for a cookie.
+- Bound to `127.0.0.1`. A random token, created once per state dir
+  (`<stateDir>/token`, mode 0600) and reused, goes in the opened URL and is
+  exchanged for an HttpOnly cookie named `excaliagent_token_<port>` (cookies
+  ignore ports; two boards must not clobber each other) with a one-year
+  `Max-Age`, so `http://127.0.0.1:7357/` works as a bookmark. On a single-user
+  machine the Host/Origin checks already stop websites; the token keeps other
+  local users out of your session list and herdr.
 - Host header check (DNS rebinding), same-origin and JSON-only writes (CSRF).
 - Side effects: focus a pane, raise a window, start `claude --resume <id>` in a
   new pane. Ids are validated; commands are built server-side only.

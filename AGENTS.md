@@ -25,7 +25,7 @@ about Claude Code or herdr, write down the version you verified it on.
 - **Never send input to an agent session.** Focusing a pane and starting
   `claude --resume <id>` in a *new* pane are the only side effects. Commands are
   built server-side from validated session ids, never from request bodies.
-- **Loopback only**, with the startup token cookie, Host check and same-origin
+- **Loopback only**, with the access token cookie, Host check and same-origin
   writes on every `/api/*` route. New side-effecting routes get the same checks.
 - **Harness-specific code stays behind interfaces**: `Source`
   (`src/server/sources/types.ts`) and `PaneLink` (`src/server/panes/types.ts`).

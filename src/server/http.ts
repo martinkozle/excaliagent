@@ -25,7 +25,10 @@ export interface AppServer {
   close(): Promise<void>;
 }
 
-const COOKIE = "excaliagent_token";
+/** Cookies ignore the port, so the name carries it: two boards never clobber each other. */
+const cookieName = (port: number) => `excaliagent_token_${port}`;
+/** The token is stable per state dir (token.ts), so the cookie may outlive a restart. */
+const COOKIE_MAX_AGE = 365 * 24 * 3600;
 const MAX_BODY = 50 * 1024 * 1024;
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -57,10 +60,10 @@ function sameToken(a: string | undefined, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-function cookieToken(req: IncomingMessage): string | undefined {
+function cookieToken(req: IncomingMessage, port: number): string | undefined {
   for (const part of (req.headers.cookie ?? "").split(";")) {
     const [k, ...v] = part.trim().split("=");
-    if (k === COOKIE) return v.join("=");
+    if (k === cookieName(port)) return v.join("=");
   }
   return undefined;
 }
@@ -224,13 +227,13 @@ export function createAppServer(opts: AppServerOptions): AppServer {
       if (!sameToken(queryToken, opts.token)) return text(res, 401, "bad token");
       res.writeHead(302, {
         location: "/",
-        "set-cookie": `${COOKIE}=${opts.token}; HttpOnly; SameSite=Strict; Path=/`,
+        "set-cookie": `${cookieName(port)}=${opts.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE}`,
       });
       res.end();
       return;
     }
 
-    if (!sameToken(cookieToken(req), opts.token)) {
+    if (!sameToken(cookieToken(req, port), opts.token)) {
       return text(res, 401, "excaliagent: open the URL printed in the terminal (it carries the access token).");
     }
 

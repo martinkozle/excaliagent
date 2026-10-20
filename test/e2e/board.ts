@@ -55,6 +55,8 @@ async function startServer(
       join(root, "src/server/cli.ts"),
       "--no-open",
       "--no-raise", // never raise windows on the developer's desktop
+      "--port",
+      "0", // never the default port: parallel workers, or the developer's own board
       ...(opts.herdrSocket ? [] : ["--no-herdr"]),
       "--claude-dir",
       claudeDir,

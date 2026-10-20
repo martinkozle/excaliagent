@@ -34,8 +34,10 @@ PR #12                            ← last PR link
 npx excaliagent
 ```
 
-It starts a server on `127.0.0.1` (a free port each run; pin one with
-`--port`), prints the URL with its access token, and opens it in your browser.
+It starts a server on `127.0.0.1:7357` (a random free port if that one is
+busy; choose with `--port`), prints the URL with its access token, and opens it
+in your browser. After that first visit, `http://127.0.0.1:7357/` works as a
+bookmark.
 
 - **Live sessions** appear in the *inbox* by themselves. A new board comes with
   lanes next to it (To Do, In Progress, Review, Blocked, Parked, Done, and two
@@ -69,8 +71,10 @@ See `npx excaliagent --help`.
   `~/.claude/projects/` (only metadata lines: title, branch, timestamps, token
   usage, PR links; never message content). Installs no hooks, writes nothing
   outside its state directory.
-- Listens on loopback only. A random token is put into the URL it opens and
-  exchanged for an HttpOnly cookie; every request needs it. Requests with a
+- Listens on loopback only. A random token (created once, kept in the state
+  directory, readable only by you) is put into the URL it opens and exchanged
+  for an HttpOnly cookie; every request needs it, so other users on the same
+  machine stay out. Requests with a
   foreign `Host` (DNS rebinding) or cross-origin writes are refused.
 - Its only actions: focus a herdr pane, raise the terminal window, and start
   `claude --resume <id>` in a new herdr pane. It never types into a running

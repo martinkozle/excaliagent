@@ -21,7 +21,8 @@ connect to a herdr you are running.
 ```
 src/shared/types.ts      Session and Pane: the wire types
 src/server/              Node server, no runtime dependencies
-  cli.ts, args.ts        flags, token, open the browser
+  cli.ts, args.ts        flags, port, open the browser
+  token.ts               the access token, kept in the state dir
   http.ts                routes, auth, SSE
   hub.ts                 joins a Source with a PaneLink, fans out updates
   scene-store.ts         atomic scene.json
