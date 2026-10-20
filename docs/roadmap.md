@@ -8,8 +8,9 @@ details. When something gets built, close its issue and describe it in
 ## Platforms
 
 - Linux: supported and used daily (Hyprland + kitty + herdr).
-- macOS: supported in code (including the terminal raise), tested by hand by
-  the maintainer; CI runs on Linux only —
+- macOS: supported. The board runs on the maintainer's MacBook (main before
+  0.3.0, 2026-10-20); herdr focus and the terminal raise are still to be
+  confirmed there. Tested by hand only; CI runs on Linux only —
   [#2](https://github.com/martinkozle/excaliagent/issues/2).
 - Windows: not supported; contributions welcome —
   [#1](https://github.com/martinkozle/excaliagent/issues/1).

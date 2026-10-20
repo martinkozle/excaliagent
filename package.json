@@ -1,6 +1,6 @@
 {
   "name": "excaliagent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A spatial Excalidraw scratchboard for your coding-agent sessions",
   "type": "module",
   "license": "MIT",
