@@ -16,13 +16,16 @@ export interface CliArgs {
   /** Show OpenAI Codex sessions too. */
   codex: boolean;
   codexDir: string | undefined;
+  /** Show OpenCode sessions too. */
+  opencode: boolean;
+  opencodeDir: string | undefined;
   help: boolean;
   version: boolean;
 }
 
 export const USAGE = `Usage: excaliagent [options]
 
-A spatial Excalidraw board for your coding-agent sessions (Claude Code, Codex).
+A spatial Excalidraw board for your coding-agent sessions (Claude Code, Codex, OpenCode).
 
 Options:
   --port <n>          Port on 127.0.0.1 (default: 7357, or a random free port
@@ -32,6 +35,9 @@ Options:
   --claude-dir <dir>  Claude Code home (default: ~/.claude)
   --codex-dir <dir>   Codex home (default: $CODEX_HOME, else ~/.codex)
   --no-codex          Do not show Codex sessions
+  --opencode-dir <dir> OpenCode data dir, holding opencode.db (default:
+                      $XDG_DATA_HOME/opencode, else ~/.local/share/opencode)
+  --no-opencode       Do not show OpenCode sessions
   --no-herdr          Do not link sessions to herdr panes
   --no-raise          Focus the herdr pane but do not raise its terminal window
                       (raising supports Hyprland, Sway and macOS)
@@ -55,6 +61,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
       "claude-dir": { type: "string" },
       codex: { type: "boolean", default: true },
       "codex-dir": { type: "string" },
+      opencode: { type: "boolean", default: true },
+      "opencode-dir": { type: "string" },
       help: { type: "boolean", short: "h", default: false },
       version: { type: "boolean", short: "v", default: false },
     },
@@ -74,6 +82,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
     claudeDir: values["claude-dir"],
     codex: values.codex,
     codexDir: values["codex-dir"],
+    opencode: values.opencode,
+    opencodeDir: values["opencode-dir"],
     help: values.help,
     version: values.version,
   };

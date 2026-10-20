@@ -23,17 +23,25 @@ describe("logos", () => {
     expect(svg).not.toMatch(/script|href|on\w+=/i);
   });
 
+  it("has the OpenCode mark from simple-icons, in black", () => {
+    const svg = svgOf(LOGOS.opencode.dataURL);
+    expect(svg.match(/<path /g)).toHaveLength(1);
+    expect(svg).toContain('fill="#000000" d="M22 24H2V0h20zM17 4.8H7v14.4h10z"');
+    expect(LOGOS.opencode.fileId).toBe("excaliagent-logo-opencode");
+  });
+
   it("gives one Excalidraw file per logo, with a stable id", () => {
     const files = logoFiles(123);
     expect(files).toEqual([
       { id: LOGOS.claude.fileId, mimeType: "image/svg+xml", dataURL: LOGOS.claude.dataURL, created: 123 },
       { id: LOGOS.codex.fileId, mimeType: "image/svg+xml", dataURL: LOGOS.codex.dataURL, created: 123 },
+      { id: LOGOS.opencode.fileId, mimeType: "image/svg+xml", dataURL: LOGOS.opencode.dataURL, created: 123 },
     ]);
     expect(LOGOS.claude.fileId).toBe("excaliagent-logo-claude");
     expect(LOGOS.codex.fileId).toBe("excaliagent-logo-codex");
   });
 
   it("names every harness", () => {
-    expect(HARNESS_NAMES).toEqual({ claude: "Claude Code", codex: "Codex" });
+    expect(HARNESS_NAMES).toEqual({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode" });
   });
 });

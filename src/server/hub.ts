@@ -28,11 +28,12 @@ export type ResumeResult = "resumed" | "no-herdr" | "unknown" | "live";
 export type EndResult = "ended" | "not-live" | "unknown" | "unsupported";
 
 /**
- * The id formats of every supported harness (Claude and Codex: UUIDs).
+ * The id formats of every supported harness (Claude and Codex: UUIDs;
+ * OpenCode: `ses_` + 26 alphanumerics).
  * Anything else is refused before it reaches a source or the characters store;
  * each source also checks its own exact format before an id goes into a command.
  */
-export const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const SESSION_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|ses_[0-9a-zA-Z]{26})$/i;
 
 const LABEL_MAX = 40;
 

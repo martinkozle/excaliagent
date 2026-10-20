@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Session } from "../shared/types.ts";
-import { createHub } from "./hub.ts";
+import { createHub, SESSION_ID } from "./hub.ts";
 import type { PaneLink } from "./panes/types.ts";
 import type { Source } from "./sources/types.ts";
 
@@ -41,6 +41,15 @@ function fakePanes(map: Record<number, { paneId: string; workspaceId: string }> 
   };
   return link;
 }
+
+describe("SESSION_ID", () => {
+  it("accepts every harness's id format and nothing else", () => {
+    for (const ok of ["0a1b2c3d-0000-4000-8000-000000000001", "01a15935-e3d1-71c2-9d74-39d8c583eef0", "ses_ea6c805c8ffeyswcuMvpFmOFAL"]) {
+      expect(SESSION_ID.test(ok)).toBe(true);
+    }
+    for (const bad of ["s1", "not-a-session", "ses_short", "../x", "ses_ea6c805c8ffeyswcuMvpFmOFAL; rm"]) expect(SESSION_ID.test(bad)).toBe(false);
+  });
+});
 
 describe("hub", () => {
   it("loads live sessions and attaches matching panes", async () => {

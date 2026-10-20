@@ -19,7 +19,6 @@ details. When something gets built, close its issue and describe it in
 
 | Issue | Area |
 |---|---|
-| [#4 OpenCode adapter](https://github.com/martinkozle/excaliagent/issues/4) | new `Source` |
 | [#5 Raise on X11, GNOME, KDE](https://github.com/martinkozle/excaliagent/issues/5) | desktop |
 | [#14 Switch to the terminal tab that holds herdr](https://github.com/martinkozle/excaliagent/issues/14) | desktop |
 | [#6 Remote machines via herdr --machine](https://github.com/martinkozle/excaliagent/issues/6) | sources, herdr |
@@ -53,6 +52,10 @@ One-time setup:
   lingers in the daemon, and macOS has no live Codex sessions yet (needs an
   `lsof`-based lock check). Codex could also be asked over its app-server
   socket (`thread/loaded/list`), at the cost of speaking its protocol.
+- **OpenCode liveness** is inferred from TUI argv and cwd (design.md,
+  "OpenCode data"): wrong after switching sessions inside a TUI. Exact would
+  need OpenCode to record its open session (an upstream feature request), or
+  a `--port` the board could query. macOS has no live OpenCode sessions yet.
 
 - **Inbox overflow** with more than a lane's worth of live cards: cards stack
   below the inbox today. Fine at 2–3 active sessions.

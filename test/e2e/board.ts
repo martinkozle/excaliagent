@@ -1,4 +1,4 @@
-// Test harness: seeded mock Claude and Codex homes + a real excaliagent server process.
+// Test harness: seeded mock Claude, Codex and OpenCode homes + a real excaliagent server process.
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createMockClaude, type MockClaude } from "../mock-claude.ts";
 import { createMockCodex, type MockCodex } from "../mock-codex.ts";
 import { createMockProc, type MockProc } from "../mock-proc.ts";
+import { createMockOpenCode, type MockOpenCode } from "../mock-opencode.ts";
 
 const root = join(import.meta.dirname, "..", "..");
 
@@ -17,6 +18,8 @@ export interface Board {
   codex: MockCodex;
   /** The synthetic /proc the server reads instead of the real one. */
   procs: MockProc;
+  /** Always a throwaway OpenCode data dir (empty unless `opencodeSeed`). */
+  opencode: MockOpenCode;
   stateDir: string;
   restart(): Promise<void>;
   /** Cards from the saved scene.json: what the frontend persisted. */
@@ -50,12 +53,15 @@ export interface BoardOptions {
   scene?: { elements: unknown[]; appState?: Record<string, unknown> };
   /** Seed the mock Codex home. */
   codexSeed?: (codex: MockCodex) => void;
+  /** Seed the mock OpenCode data dir. */
+  opencodeSeed?: (opencode: MockOpenCode) => void;
 }
 
 async function startServer(
   claudeDir: string,
   codexDir: string,
   procRoot: string,
+  opencodeDir: string,
   stateDir: string,
   opts: BoardOptions,
 ): Promise<{ proc: ChildProcess; url: string }> {
@@ -77,6 +83,8 @@ async function startServer(
       claudeDir,
       "--codex-dir",
       codexDir,
+      "--opencode-dir",
+      opencodeDir,
       "--state-dir",
       stateDir,
     ],
@@ -106,9 +114,11 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
   const procs = createMockProc(mkdtempSync(join(tmpdir(), "excaliagent-e2e-proc-")));
   const codex = createMockCodex(procs);
   opts.codexSeed?.(codex);
+  const opencode = createMockOpenCode(procs);
+  opts.opencodeSeed?.(opencode);
   const stateDir = mkdtempSync(join(tmpdir(), "excaliagent-e2e-state-"));
   if (opts.scene) writeFileSync(join(stateDir, "scene.json"), JSON.stringify({ appState: {}, ...opts.scene }));
-  let { proc, url } = await startServer(mock.dir, codex.dir, procs.root, stateDir, opts);
+  let { proc, url } = await startServer(mock.dir, codex.dir, procs.root, opencode.dir, stateDir, opts);
 
   const board: Board = {
     url,
@@ -116,11 +126,12 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
     mock,
     codex,
     procs,
+    opencode,
     stateDir,
     async restart() {
       proc.kill("SIGTERM");
       await new Promise((r) => proc.once("exit", r));
-      ({ proc, url } = await startServer(mock.dir, codex.dir, procs.root, stateDir, opts));
+      ({ proc, url } = await startServer(mock.dir, codex.dir, procs.root, opencode.dir, stateDir, opts));
       board.url = url;
       board.origin = new URL(url).origin;
     },
@@ -170,6 +181,7 @@ export async function startBoard(seed: (mock: MockClaude) => void, opts: BoardOp
       mock.teardown();
       codex.teardown();
       rmSync(procs.root, { recursive: true, force: true });
+      opencode.teardown();
       rmSync(stateDir, { recursive: true, force: true });
     },
   };

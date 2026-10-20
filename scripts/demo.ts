@@ -1,4 +1,4 @@
-// `npm run demo [-- --dev]`: start excaliagent against synthetic Claude and Codex homes
+// `npm run demo [-- --dev]`: start excaliagent against synthetic Claude, Codex and OpenCode homes
 // with a seeded cast, simulate some activity, tear everything down on exit.
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createMockClaude, seedDemo, type MockStatus } from "../test/mock-claude.ts";
 import { createMockCodex, seedCodexDemo } from "../test/mock-codex.ts";
 import { createMockProc } from "../test/mock-proc.ts";
+import { createMockOpenCode, seedOpenCodeDemo } from "../test/mock-opencode.ts";
 
 const mock = createMockClaude();
 seedDemo(mock);
@@ -14,12 +15,14 @@ seedDemo(mock);
 const procs = createMockProc(mkdtempSync(join(tmpdir(), "excaliagent-demo-proc-")));
 const codex = createMockCodex(procs);
 seedCodexDemo(codex);
+const opencode = createMockOpenCode(procs);
+seedOpenCodeDemo(opencode);
 const stateDir = mkdtempSync(join(tmpdir(), "excaliagent-demo-state-"));
 const root = join(import.meta.dirname, "..");
 
 const server = spawn(
   process.execPath,
-  [join(root, "src/server/cli.ts"), "--claude-dir", mock.dir, "--codex-dir", codex.dir, "--state-dir", stateDir, "--no-herdr", ...process.argv.slice(2)],
+  [join(root, "src/server/cli.ts"), "--claude-dir", mock.dir, "--codex-dir", codex.dir, "--opencode-dir", opencode.dir, "--state-dir", stateDir, "--no-herdr", ...process.argv.slice(2)],
   { stdio: "inherit", env: { ...process.env, EXCALIAGENT_PROC_ROOT: procs.root } },
 );
 
@@ -40,6 +43,7 @@ const cleanup = () => {
   server.kill("SIGTERM");
   mock.teardown();
   codex.teardown();
+  opencode.teardown();
   rmSync(procs.root, { recursive: true, force: true });
   rmSync(stateDir, { recursive: true, force: true });
 };
