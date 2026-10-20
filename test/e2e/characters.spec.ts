@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { seedDemo } from "../mock-claude.ts";
 import { startBoard, type Board } from "./board.ts";
+import { scrollToElement } from "./view.ts";
 
 const ID = {
   busy: "11111111-0000-4000-8000-000000000001",
@@ -41,16 +42,7 @@ const characterOf = (id: string) => savedCharacters()[id];
 const stateFile = () => JSON.parse(readFileSync(join(board.stateDir, "characters.json"), "utf8"));
 
 async function cardPoint(page: Page, sessionId: string) {
-  return page.evaluate(async (sessionId) => {
-    const { excalidraw } = (window as any).__excaliagent;
-    const rect = excalidraw
-      .getSceneElements()
-      .find((e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId);
-    excalidraw.scrollToContent(rect, { animate: false });
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const s = excalidraw.getAppState();
-    return { x: (rect.x + rect.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft, y: (rect.y + rect.height - 20 + s.scrollY) * s.zoom.value + s.offsetTop };
-  }, sessionId);
+  return scrollToElement(page, { kind: "card", sessionId }, { fy: 1, dy: -20 });
 }
 
 async function openPicker(page: Page, sessionId: string) {
