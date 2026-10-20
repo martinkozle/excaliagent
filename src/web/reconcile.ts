@@ -322,7 +322,7 @@ function reconcileCards(
     if (carded.has(s.id)) continue;
     if (!inbox) {
       // A board without inbox and lanes is new: lay out the whole starter template.
-      const made = hasLanes(result) ? makeInbox(gen, now) : makeStarterBoard(gen, now);
+      const made = hasLanes(result) ? makeInbox(gen, now, undefined, measure) : makeStarterBoard(gen, now, measure);
       result.push(...made);
       touched.push(...made.map((e) => e.id));
       inbox = made.find(isInbox)!;

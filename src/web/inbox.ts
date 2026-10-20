@@ -1,6 +1,6 @@
 // Inbox placement: a wrapping grid inside the inbox rectangle.
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { CARD_H, CARD_W, cardMeta } from "./cards.ts";
+import { AREA_HEADER, CARD_H, CARD_W, cardMeta } from "./cards.ts";
 
 export const GAP = 20;
 
@@ -11,7 +11,8 @@ function overlaps(a: Box, b: Box): boolean {
 }
 
 /**
- * First free grid slot (row-major, `CARD_W`×`CARD_H` cells with `GAP`) inside
+ * First free grid slot (row-major, `CARD_W`×`CARD_H` cells with `GAP`, below the
+ * `AREA_HEADER` that holds the inbox title) inside
  * `inbox` that overlaps no non-deleted card. When the inbox is full, rows keep
  * going below it in the same columns.
  */
@@ -21,7 +22,7 @@ export function nextSlot(inbox: Box, elements: readonly ExcalidrawElement[]): { 
   for (let i = 0; ; i++) {
     const r = Math.floor(i / cols);
     const c = i % cols;
-    const slot = { x: inbox.x + GAP + c * (CARD_W + GAP), y: inbox.y + GAP + r * (CARD_H + GAP), width: CARD_W, height: CARD_H };
+    const slot = { x: inbox.x + GAP + c * (CARD_W + GAP), y: inbox.y + AREA_HEADER + r * (CARD_H + GAP), width: CARD_W, height: CARD_H };
     if (!cards.some((k) => overlaps(slot, k))) return { x: slot.x, y: slot.y };
   }
 }

@@ -234,13 +234,13 @@ describe("makeCard", () => {
 });
 
 describe("makeInbox", () => {
-  it("creates an inbox rectangle and a title text above it", () => {
+  it("creates an inbox rectangle with its title bound inside, at the top", () => {
     const els = makeInbox(testGen(), NOW);
     const rect = els.find((e) => e.type === "rectangle")!;
     expect(rect.customData).toEqual({ excaliagent: { kind: "inbox" } });
     const label = els.find((e) => e.type === "text");
-    expect(label).toMatchObject({ text: "inbox", containerId: null });
-    expect(label!.y + label!.height).toBeLessThanOrEqual(rect.y);
+    expect(label).toMatchObject({ text: "inbox", containerId: rect.id, verticalAlign: "top" });
+    expect(label!.y).toBeGreaterThan(rect.y);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { CARD_H, CARD_W, makeCard, makeInbox } from "./cards.ts";
+import { AREA_HEADER, CARD_H, CARD_W, makeCard, makeInbox } from "./cards.ts";
 import { GAP, nextSlot } from "./inbox.ts";
 import { NOW, session, testGen } from "./__fixtures__/helpers.ts";
 
@@ -9,7 +9,7 @@ const inbox = makeInbox(gen, NOW).find((e) => e.type === "rectangle")!;
 const card = (x: number, y: number, over: Partial<ExcalidrawElement> = {}) =>
   ({ ...makeCard(session(), { x, y }, gen, NOW)[0], ...over }) as ExcalidrawElement;
 const col = (c: number) => inbox.x + GAP + c * (CARD_W + GAP);
-const row = (r: number) => inbox.y + GAP + r * (CARD_H + GAP);
+const row = (r: number) => inbox.y + AREA_HEADER + r * (CARD_H + GAP);
 
 describe("nextSlot", () => {
   it("default inbox fits 2 columns × 8 rows of cards", () => {
@@ -18,7 +18,7 @@ describe("nextSlot", () => {
     expect(row(7) + CARD_H).toBeLessThanOrEqual(inbox.y + inbox.height);
   });
 
-  it("first slot is the inbox's top-left corner plus gap", () => {
+  it("first slot is the inbox's top-left corner, below its title", () => {
     expect(nextSlot(inbox, [])).toEqual({ x: col(0), y: row(0) });
   });
 
@@ -32,7 +32,7 @@ describe("nextSlot", () => {
 
   it("a partially overlapping card blocks the slot", () => {
     // overlaps both columns of rows 0 and 1
-    expect(nextSlot(inbox, [card(inbox.x + 100, inbox.y + 50)])).toEqual({ x: col(0), y: row(2) });
+    expect(nextSlot(inbox, [card(inbox.x + 100, inbox.y + 100)])).toEqual({ x: col(0), y: row(2) });
   });
 
   it("keeps stacking below the inbox once it is full", () => {

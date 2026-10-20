@@ -69,9 +69,17 @@ export const TITLE_H = TITLE_SIZE * TITLE_LH;
 /** Fits two title lines and five detail lines. */
 export const CARD_H = Math.ceil(PAD + TITLE_MAX_LINES * TITLE_H + TITLE_GAP + DETAIL_LINES * DETAIL_SIZE * DETAIL_LH + PAD);
 
-/** A tall inbox: exactly 2 columns × 8 rows of cards with 20px gaps (see inbox.ts GAP). */
+/** Lane and inbox titles: Excalifont 28 (Excalidraw's "L"), bound inside the area at its top. */
+export const AREA_TITLE_SIZE = 28;
+export const AREA_TITLE_COLOR = "#495057";
+/** Excalidraw's BOUND_TEXT_PADDING: where it keeps bound text from the container edge. */
+const BOUND_PAD = 5;
+/** Room for the title at the top of an area; the inbox grid starts below it. */
+export const AREA_HEADER = 56;
+
+/** A tall inbox: exactly 2 columns × 8 rows of cards with 20px gaps (see inbox.ts GAP), below its title. */
 export const INBOX_W = 20 + 2 * (CARD_W + 20);
-export const INBOX_H = 20 + 8 * (CARD_H + 20);
+export const INBOX_H = AREA_HEADER + 8 * (CARD_H + 20);
 export const INBOX_ORIGIN = { x: 40, y: 80 };
 
 export type CardMeta = { kind: "card"; source: Session["source"]; sessionId: string };
@@ -418,38 +426,62 @@ export function makeArea(
   };
 }
 
-/** A free Excalifont title just above an area at `at`. */
-export function makeAreaLabel(
+/**
+ * An area with its title bound inside, top-centred: the title moves with the
+ * area and is renamed by double-clicking it. No title → no text element.
+ */
+export function makeTitledArea(
   gen: Gen,
   now: number,
-  at: { x: number; y: number },
-  text: string,
+  box: { x: number; y: number; width: number; height: number },
   customData: Record<string, unknown>,
-): ExcalidrawTextElement {
-  return textElement(
-    gen,
-    now,
-    {
-      x: at.x,
-      y: at.y - TITLE_H - 8,
-      text,
-      ...partBox("card-title", text),
-      fontSize: TITLE_SIZE,
-      fontFamily: TITLE_FONT,
-      lineHeight: TITLE_LH,
-      strokeColor: "#868e96",
-      groupIds: [],
-    },
-    customData,
-  );
+  title: string,
+  titleData: Record<string, unknown>,
+  measure: Measure = estimateMeasure,
+): [ExcalidrawRectangleElement, ...ExcalidrawTextElement[]] {
+  const area = makeArea(gen, now, box, customData);
+  if (!title) return [area];
+  const width = Math.min(box.width - 2 * BOUND_PAD, Math.ceil(measure(title, TITLE_FONT, AREA_TITLE_SIZE)));
+  const text: ExcalidrawTextElement = {
+    ...textElement(
+      gen,
+      now,
+      {
+        x: box.x + (box.width - width) / 2,
+        y: box.y + BOUND_PAD,
+        text: title,
+        width,
+        height: AREA_TITLE_SIZE * TITLE_LH,
+        fontSize: AREA_TITLE_SIZE,
+        fontFamily: TITLE_FONT,
+        lineHeight: TITLE_LH,
+        strokeColor: AREA_TITLE_COLOR,
+        groupIds: [],
+      },
+      titleData,
+    ),
+    containerId: area.id,
+    textAlign: "center",
+  };
+  return [{ ...area, boundElements: [{ type: "text", id: text.id }] }, text];
 }
 
-/** The inbox rectangle plus a free "inbox" title just above it. */
-export function makeInbox(gen: Gen, now: number, at = INBOX_ORIGIN): [ExcalidrawRectangleElement, ExcalidrawTextElement] {
-  const rect = makeArea(gen, now, { ...at, width: INBOX_W, height: INBOX_H }, {
-    excaliagent: { kind: "inbox" } satisfies InboxMeta,
-  });
-  return [rect, makeAreaLabel(gen, now, at, "inbox", { excaliagent: { kind: "inbox-label" } satisfies InboxMeta })];
+/** The inbox rectangle with "inbox" as its title. */
+export function makeInbox(
+  gen: Gen,
+  now: number,
+  at = INBOX_ORIGIN,
+  measure: Measure = estimateMeasure,
+): [ExcalidrawRectangleElement, ...ExcalidrawTextElement[]] {
+  return makeTitledArea(
+    gen,
+    now,
+    { ...at, width: INBOX_W, height: INBOX_H },
+    { excaliagent: { kind: "inbox" } satisfies InboxMeta },
+    "inbox",
+    { excaliagent: { kind: "inbox-label" } satisfies InboxMeta },
+    measure,
+  );
 }
 
 export function cardMeta(e: ExcalidrawElement): CardMeta | undefined {

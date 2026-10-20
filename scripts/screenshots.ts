@@ -28,12 +28,12 @@ async function moveToLane(page: Page, sessionId: string, lane: string, slot = 0)
       const label = els.find((e: any) => !e.isDeleted && e.type === "text" && e.originalText === lane);
       const laneRect = els
         .filter((e: any) => !e.isDeleted && e.type === "rectangle" && e.customData?.excaliagent?.kind === "lane")
-        .sort((a: any, b: any) => Math.abs(a.x - label.x) - Math.abs(b.x - label.x))[0];
+        .find((e: any) => e.id === label.containerId);
       const rect = els.find(
         (e: any) => e.customData?.excaliagent?.kind === "card" && e.customData.excaliagent.sessionId === sessionId && !e.isDeleted,
       );
       const dx = laneRect.x + 20 - rect.x;
-      const dy = laneRect.y + 20 + slot * (rect.height + 20) - rect.y;
+      const dy = laneRect.y + 56 + slot * (rect.height + 20) - rect.y; // below the lane title (AREA_HEADER)
       const group = rect.groupIds[0];
       excalidraw.updateScene({
         elements: els.map((e: any) =>

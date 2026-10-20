@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ExcalidrawElement, ExcalidrawImageElement, ExcalidrawTextElement } from "@excalidraw/excalidraw/element/types";
 import { reconcile } from "./reconcile.ts";
-import { CARD_H, CARD_W, LOGO_SIZE, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
+import { AREA_HEADER, CARD_H, CARD_W, LOGO_SIZE, PAD, TITLE_GAP, TITLE_H, detailsText, titleText, type Measure } from "./cards.ts";
 import { LOGOS } from "./logos.ts";
 import { DAY, NOW, session, testGen } from "./__fixtures__/helpers.ts";
 import userDrawingsJson from "./__fixtures__/user-drawings.json" with { type: "json" };
@@ -245,8 +245,8 @@ describe("reconcile", () => {
     expect(r.spawned).toEqual(["s2", "s3"]);
     const c2 = cardsOf(r.elements, "s2")[0]!;
     const c3 = cardsOf(r.elements, "s3")[0]!;
-    expect([c2.x, c2.y]).toEqual([3020, -480]);
-    expect([c3.x, c3.y]).toEqual([3340, -480]);
+    expect([c2.x, c2.y]).toEqual([3020, -500 + AREA_HEADER]);
+    expect([c3.x, c3.y]).toEqual([3340, -500 + AREA_HEADER]);
     expect(partOf(r.elements, c3, "card-title").x).toBe(3340 + PAD);
   });
 

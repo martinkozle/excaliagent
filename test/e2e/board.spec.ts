@@ -334,6 +334,27 @@ test("a fresh board starts with the inbox and the starter lanes", async ({ page 
   await page.screenshot({ path: "test-results/board-lanes.png" });
 });
 
+test("a lane is renamed by double-clicking it: its title is bound inside", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await open(page);
+  await expect.poll(() => lanes().length).toBe(8);
+  const point = await page.evaluate(async () => {
+    const { excalidraw } = (window as any).__excaliagent;
+    const lane = excalidraw.getSceneElements().find((e: any) => e.customData?.excaliagent?.kind === "lane");
+    excalidraw.scrollToContent(lane, { animate: false });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const { scrollX, scrollY, zoom, offsetLeft, offsetTop } = excalidraw.getAppState();
+    const x = lane.x + lane.width / 2, y = lane.y + lane.height / 2;
+    return { x: (x + scrollX) * zoom.value + offsetLeft, y: (y + scrollY) * zoom.value + offsetTop };
+  });
+  await page.mouse.dblclick(point.x, point.y);
+  const editor = page.locator("textarea.excalidraw-wysiwyg");
+  await expect(editor).toHaveValue("To Do");
+  await editor.fill("Today");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => laneTitles()[0]).toBe("Today");
+});
+
 test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
   await open(page);
   await expect.poll(() => lanes().length).toBe(8);

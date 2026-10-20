@@ -252,7 +252,7 @@ export function App() {
   const addLanes = useCallback(() => {
     const ex = excalidraw;
     if (!ex) return;
-    const next = appendLanes(ex.getSceneElementsIncludingDeleted(), defaultGen, Date.now());
+    const next = appendLanes(ex.getSceneElementsIncludingDeleted(), defaultGen, Date.now(), measure);
     if (!next) {
       ex.setToast({ message: "No inbox on the board to put lanes beside.", duration: 3000, closable: true });
       return;
@@ -265,7 +265,7 @@ export function App() {
   const addOneLane = useCallback(() => {
     const ex = excalidraw;
     if (!ex) return;
-    const { elements, lane } = addLane(ex.getSceneElementsIncludingDeleted(), defaultGen, Date.now());
+    const { elements, lane } = addLane(ex.getSceneElementsIncludingDeleted(), defaultGen, Date.now(), measure);
     ex.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
     ex.scrollToContent(lane, { animate: true });
     save(true);

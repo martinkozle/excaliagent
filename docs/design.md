@@ -264,20 +264,27 @@ re-fitted, so a late font load cannot leave clipped text.
 ### Inbox and lanes (`src/web/cards.ts`, `src/web/inbox.ts`, `src/web/lanes.ts`)
 
 - **Inbox**: a grey dashed, transparent rectangle with
-  `customData.excaliagent = {kind:"inbox"}` plus a free Excalifont "inbox" text
-  above it (`{kind:"inbox-label"}`). New boards get a tall one at (40, 80):
-  660×1628, i.e. 2 cards wide × 8 rows (20 px gaps). The user moves and resizes
-  it. New cards take the first free grid slot inside its current bounds
-  (`nextSlot`: columns = what fits the width, row-major, skipping any slot that
-  overlaps a non-deleted card); when full, rows continue below it. Existing
+  `customData.excaliagent = {kind:"inbox"}` and the title "inbox" bound inside
+  it (`{kind:"inbox-label"}`, see titles below). New boards get a tall one at
+  (40, 80): 660×1664, i.e. 2 cards wide × 8 rows (20 px gaps) under a 56 px
+  header (`AREA_HEADER`). The user moves and resizes it. New cards take the
+  first free grid slot inside its current bounds, below the header (`nextSlot`:
+  columns = what fits the width, row-major, skipping any slot that overlaps a
+  non-deleted card); when full, rows continue below it. Existing
   inboxes keep whatever size they have (older boards: 980×824, 3 columns).
 - **Starter lanes** (Kanban): 8 rectangles one card wide (340 = 300 + 2×20),
   same height as the inbox, 40 px apart, starting 40 px right of the inbox and
-  top-aligned with it. Same grey dashed transparent look. The first six have a
-  free Excalifont title above them: To Do, In Progress, Review, Blocked, Parked,
-  Done; the last two are untitled. Markers only: `{kind:"lane"}` /
-  `{kind:"lane-label"}`. The app never patches lanes; the user owns them
-  (renaming = editing the text). Cards are only ever placed in the inbox; moving
+  top-aligned with it. Same grey dashed transparent look. The first six are
+  titled To Do, In Progress, Review, Blocked, Parked, Done; the last two are
+  untitled. Markers only: `{kind:"lane"}` / `{kind:"lane-label"}`. The app
+  never patches lanes; the user owns them (renaming = double-clicking the lane).
+- **Titles** are Excalidraw bound text (`containerId` = the area,
+  `verticalAlign: "top"`, `textAlign: "center"`), Excalifont 28 `#495057`, so
+  they move with their box and cannot be dragged apart; placed and measured like
+  Excalidraw would (5 px bound-text padding, the canvas measurer). An untitled
+  lane has no text element (Excalidraw drops empty bound text). Boards from
+  before 0.3.0 keep their free titles above the boxes; the app never rewrites
+  lanes. Cards are only ever placed in the inbox; moving
   them between lanes is the user's job.
 - **When they are created**: when reconcile needs an inbox and the board has
   neither an inbox nor any lane, it creates the whole template (inbox + lanes) in
