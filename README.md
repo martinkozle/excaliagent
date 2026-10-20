@@ -39,7 +39,8 @@ It starts a server on `127.0.0.1` and opens the board in your browser.
 - **Live sessions** appear in the *inbox* by themselves. A new board comes with
   lanes next to it (To Do, In Progress, Review, Blocked, Parked, Done, and two
   blank ones to name yourself); they are plain shapes you can rename, move or
-  delete. On an older board, add them from the main menu: *Add starter lanes*.
+  delete. **+ Lane** (top right) adds one more at the right end. On an older
+  board, add the whole set from the main menu: *Add starter lanes*.
 - **Dormant sessions** are added from the **Sessions** panel (top right).
 - **Double-click a card** to jump to it: a live session focuses its
   [herdr](https://herdr.dev) pane and raises the terminal window (Hyprland,

@@ -1,8 +1,9 @@
 // Starter Kanban lanes: plain rectangles the user owns. The app creates them
-// (with a fresh board, or on "Add starter lanes") and never patches them after;
+// (with a fresh board, on "Add starter lanes", or one at a time with "+ Lane") and
+// never patches them after;
 // `customData.excaliagent = {kind:"lane"}` / `{kind:"lane-label"}` are markers only.
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { CARD_W, isInbox, makeArea, makeAreaLabel, makeInbox, type Gen } from "./cards.ts";
+import { CARD_W, INBOX_H, INBOX_ORIGIN, isInbox, makeArea, makeAreaLabel, makeInbox, type Gen } from "./cards.ts";
 import { GAP } from "./inbox.ts";
 
 export const LANE_W = CARD_W + 2 * GAP;
@@ -42,4 +43,24 @@ export function makeStarterBoard(gen: Gen, now: number): ExcalidrawElement[] {
 export function appendLanes(elements: readonly ExcalidrawElement[], gen: Gen, now: number): ExcalidrawElement[] | null {
   const inbox = elements.find(isInbox);
   return inbox ? [...elements, ...lanesBeside(inbox, gen, now)] : null;
+}
+
+/**
+ * The "+ Lane" button: one more lane right of the rightmost lane (or of the
+ * inbox), top-aligned with it and as tall, titled "New lane" for renaming.
+ */
+export function addLane(
+  elements: readonly ExcalidrawElement[],
+  gen: Gen,
+  now: number,
+): { elements: ExcalidrawElement[]; lane: ExcalidrawElement } {
+  const anchors = elements.filter((e) => isLane(e) || isInbox(e));
+  const right = anchors.reduce<ExcalidrawElement | undefined>(
+    (best, e) => (!best || e.x + e.width > best.x + best.width ? e : best),
+    undefined,
+  );
+  const at = right ? { x: right.x + right.width + LANE_GAP, y: right.y } : INBOX_ORIGIN;
+  const lane = makeArea(gen, now, { ...at, width: LANE_W, height: right?.height ?? INBOX_H }, { excaliagent: { kind: "lane" } });
+  const label = makeAreaLabel(gen, now, at, "New lane", { excaliagent: { kind: "lane-label" } });
+  return { elements: [...elements, lane, label], lane };
 }

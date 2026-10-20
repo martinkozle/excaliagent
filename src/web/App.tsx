@@ -34,7 +34,7 @@ import { defaultGen, formatAge } from "./cards.ts";
 import { canvasMeasure } from "./measure.ts";
 import { reconcile } from "./reconcile.ts";
 import { LOGOS, logoFiles } from "./logos.ts";
-import { appendLanes } from "./lanes.ts";
+import { addLane, appendLanes } from "./lanes.ts";
 
 // Serve Excalidraw's local fonts from our own server; missing fonts (Xiaolai CJK) fall back to CDN.
 (window as unknown as { EXCALIDRAW_ASSET_PATH: string }).EXCALIDRAW_ASSET_PATH = "/";
@@ -259,6 +259,16 @@ export function App() {
     save(true);
   }, [excalidraw, save]);
 
+  /** "+ Lane": one more lane at the right end, as an undoable edit, scrolled into view. */
+  const addOneLane = useCallback(() => {
+    const ex = excalidraw;
+    if (!ex) return;
+    const { elements, lane } = addLane(ex.getSceneElementsIncludingDeleted(), defaultGen, Date.now());
+    ex.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+    ex.scrollToContent(lane, { animate: true });
+    save(true);
+  }, [excalidraw, save]);
+
   const closeMenu = useCallback(() => setMenuFor(null), []);
   const onMenuAction = useCallback(
     (item: MenuItem) => {
@@ -312,6 +322,9 @@ export function App() {
         renderTopRightUI={() => (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {!connected && <span style={{ color: "#e03131", fontSize: 12 }}>server offline</span>}
+            <button type="button" className="sidebar-trigger" title="Add a lane at the right end" onClick={addOneLane}>
+              + Lane
+            </button>
             <Sidebar.Trigger
               name={PICKER}
               title="Add a dormant session to the board"

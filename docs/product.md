@@ -84,6 +84,7 @@ OpenCode) are a later adapter.
 - The scene is saved locally and restored on restart; saves are atomic.
 - The inbox is a rectangle I can move and resize; new cards land inside it.
 - Images I paste onto the board are kept too.
+- A new board comes with Kanban lanes beside the inbox; **+ Lane** adds more.
 
 ### S6. Publish (in progress)
 

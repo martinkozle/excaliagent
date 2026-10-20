@@ -334,6 +334,19 @@ test("a fresh board starts with the inbox and the starter lanes", async ({ page 
   await page.screenshot({ path: "test-results/board-lanes.png" });
 });
 
+test("+ Lane adds one lane at the right end, undoably", async ({ page }) => {
+  await open(page);
+  await expect.poll(() => lanes().length).toBe(8);
+  const last = lanes().at(-1)!;
+  await page.getByRole("button", { name: "+ Lane" }).click();
+  await expect.poll(() => lanes().length).toBe(9);
+  expect(lanes().at(-1)).toMatchObject({ x: last.x + last.width + 40, y: last.y, width: last.width, height: last.height });
+  expect(laneTitles().at(-1)).toBe("New lane");
+  await page.locator(".excalidraw").focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => lanes().length).toBe(8);
+});
+
 test.describe("an existing board with an inbox and no lanes", () => {
   const inbox = {
     id: "old-inbox", type: "rectangle", x: 100, y: 50, width: 980, height: 824, angle: 0,

@@ -329,6 +329,9 @@ the same array.
   "Add starter lanes" at the top. It appends the lanes beside the current
   inbox's bounds (`appendLanes`; toast if there is no inbox) as a normal
   undoable edit (`CaptureUpdateAction.IMMEDIATELY`), unlike reconcile's patches.
+- **+ Lane** (top right, beside "Sessions"): `addLane` appends one lane right
+  of the rightmost lane or inbox, top-aligned with it and as tall, titled "New
+  lane"; the same kind of undoable edit, then scrolled into view.
 - **Picker**: an Excalidraw `Sidebar` toggled by "Sessions" (top right), listing
   `/api/picker` minus sessions already on the board.
 
