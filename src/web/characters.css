@@ -26,6 +26,7 @@
   gap: 8px;
   padding: 6px 8px;
   border-radius: var(--border-radius-md, 6px);
+  cursor: pointer;
 }
 .excaliagent-pack-row:hover {
   background: var(--button-hover-bg, var(--color-surface-high));

@@ -270,3 +270,32 @@ test("the Characters panel shows a pack without making it active", async ({ page
   await page.waitForTimeout(300);
   expect(stateFile().activePack).toBe("@animals");
 });
+
+test("the Characters panel keeps the radio and the preview in sync", async ({ page }) => {
+  await open(page);
+  await page.getByTitle("Character packs for the cards").click();
+  const panel = page.locator(".excaliagent-chars");
+  const status = panel.locator(".excaliagent-pack-status");
+  await expect(panel.getByRole("radio", { name: "Use Animals" })).toBeChecked();
+  await expect(status).toContainText("Active");
+
+  // Show Sea (preview only), then activate Food by its radio: Food is checked and shown.
+  await panel.getByRole("button", { name: "Show Sea" }).click();
+  await expect(panel.locator('[data-character="🐙"]')).toBeVisible();
+  await expect(status).toContainText("Preview only: the cards use Animals");
+  await panel.getByRole("radio", { name: "Use Food" }).check();
+  await expect(panel.getByRole("radio", { name: "Use Food" })).toBeChecked();
+  await expect(panel.locator('[data-character="🍎"]')).toBeVisible();
+  await expect(panel.locator('[data-character="🐙"]')).toHaveCount(0);
+  await expect(status).toContainText("Active");
+  await expect.poll(() => stateFile().activePack).toBe("@food");
+  await expect(panel.locator('.excaliagent-pack-row[data-viewing="true"]')).toHaveText(/Food/);
+
+  // Clicking anywhere on a row (here its count) shows that pack without activating it.
+  await panel.locator(".excaliagent-pack-row", { hasText: "Fantasy" }).locator(".count").click();
+  await expect(panel.locator('[data-character="🐉"]')).toBeVisible();
+  await expect(panel.getByRole("radio", { name: "Use Food" })).toBeChecked();
+  await expect(status).toContainText("Preview only: the cards use Food");
+  await page.waitForTimeout(300);
+  expect(stateFile().activePack).toBe("@food");
+});

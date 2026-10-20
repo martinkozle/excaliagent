@@ -562,8 +562,12 @@ their rotated bounds), and a fixed card being dragged is never placed.
   undoable edit; see "What the app may change").
 - **Characters panel**: an Excalidraw `Sidebar` ("Characters", top right) with
   our own UI in Excalidraw's library style: each pack row has a radio that
-  makes it active and a button that shows it (viewing and activating are
-  separate); create, rename, delete, duplicate; a pack's characters as
+  makes it active and also shows it below, so right after a choice the
+  checked radio and the preview always agree; clicking anywhere else on the
+  row (its name is a "Show …" button for the keyboard) only shows the pack.
+  A line under the pack's name says "Active" or "Preview only: the cards use
+  <active pack>"; the radio stays checked on the pack chosen until the server
+  answers. Create, rename, delete, duplicate; a pack's characters as
   library-like cells; add emoji by typing or pasting, images by pasting into
   that field, dropping (the drop is stopped so Excalidraw does not also put the
   image on the canvas) or uploading.

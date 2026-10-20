@@ -168,7 +168,10 @@ export function CharactersPanel({
   const [choosing, setChoosing] = useState<string | null>(null);
 
   if (!data) return <p style={{ padding: "0 12px" }}>Characters are not available (see the server log).</p>;
-  const pack: Pack | undefined = data.packs.find((p) => p.id === (viewing ?? data.activePack)) ?? data.packs[0];
+  /** The pack whose radio is checked: the one just chosen, until the server answers. */
+  const active = choosing ?? data.activePack;
+  const pack: Pack | undefined = data.packs.find((p) => p.id === (viewing ?? active)) ?? data.packs[0];
+  const activeName = data.packs.find((p) => p.id === active)?.name;
 
   const run = async (fn: () => Promise<CharactersData>, after?: () => void) => {
     setBusy(true);
@@ -277,18 +280,22 @@ export function CharactersPanel({
       <h3>Packs</h3>
       <div role="radiogroup" aria-label="Active pack">
         {data.packs.map((p) => (
-          <div key={p.id} className="excaliagent-pack-row" data-viewing={p.id === pack?.id}>
+          // Clicking anywhere on a row shows that pack below. Its radio also makes
+          // it active, and shows it too, so the radio and the preview never disagree
+          // right after a choice.
+          <div key={p.id} className="excaliagent-pack-row" data-viewing={p.id === pack?.id} onClick={() => setViewing(p.id)}>
             <input
               type="radio"
               name="excaliagent-active-pack"
               aria-label={`Use ${p.name}`}
-              checked={p.id === (choosing ?? data.activePack)}
+              checked={p.id === active}
               onChange={() => {
+                setViewing(p.id);
                 setChoosing(p.id);
                 void run(() => api.setActivePack(p.id)).finally(() => setChoosing(null));
               }}
             />
-            {/* Viewing a pack (to see or edit it) is separate from making it active. */}
+            {/* Showing a pack (to see or edit it) without making it active. */}
             <button
               type="button"
               className="name"
@@ -367,6 +374,11 @@ export function CharactersPanel({
               </>
             )}
           </div>
+          <p className="excaliagent-note excaliagent-pack-status">
+            {pack.id === active
+              ? "Active: the cards use this pack."
+              : `Preview only: the cards use ${activeName ?? "another pack"}. Pick its radio button to use it.`}
+          </p>
           {pack.builtIn && <p className="excaliagent-note">Built-in packs are read-only.</p>}
           {pack.error && <p className="excaliagent-error">{pack.error}</p>}
           {editor}
